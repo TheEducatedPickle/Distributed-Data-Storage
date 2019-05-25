@@ -1,0 +1,6 @@
+For this assignment Austin and Priya worked on implementing broadcasting and view operations, and Emerson and Yousef worked on ensuring causal consistency
+
+Emerson Christie (emjchris) - implemented key value operations (get, put, delete) enforced with causal consistency.
+Yousef Dost (ydost) - helped implement causal operations and queueing mechanism
+Austin Yuan (ajyuan) - worked on broadcast methods and view operations
+Priya Rajarathinam (prajarat) - worked on view functions and handling replicas restarting. 
