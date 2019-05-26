@@ -24,7 +24,7 @@ view = replica1SocketAddress + "," + replica2SocketAddress + "," + replica3Socke
 
 A = False
 B = False
-C = True
+C = False
 D = True
 ############################### Docker Linux Commands ###########################################################
 def removeSubnet(subnetName):
@@ -42,7 +42,7 @@ def buildDockerImage():
     os.system(command)
 
 def runReplica(hostPort, ipAddress, subnetName, instanceName):
-    command = "docker run -d -p " + hostPort + ":8080 --net=" + subnetName + " --ip=" + ipAddress + " --name=" + instanceName + " -e SOCKET_ADDRESS=" + ipAddress + ":8080" + " -e VIEW=" + view + " assignment3-img"
+    command = "docker run -d -p " + hostPort + ":8080 --net=" + subnetName + " --ip=" + ipAddress + " --name=" + instanceName + " -e SOCKET_ADDRESS=" + ipAddress + ":8080" + " -e VIEW=" + view + " -e SHARD_COUNT=2 assignment3-img"
     os.system(command)
     time.sleep(20)
 

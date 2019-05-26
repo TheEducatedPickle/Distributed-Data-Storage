@@ -13,21 +13,18 @@ SOCKET = os.environ.get('SOCKET_ADDRESS')
 SHARD_COUNT = int(os.environ.get('SHARD_COUNT'))
 app = Flask(__name__)
 
-ring_index = hashNode(SOCKET)
+current_shard = None
 vectorclock = {}
 versionlist = []
-
-for repl in REPLICAS:
-    addNodeToShards(repl)
 
 ###################### Shard Operations ######################
 @app.route('/key-value-store-shard/node-shard-id', methods=['GET'])
 def getShardId():
-    global ring_index
+    global current_shard
     return app.response_class(
         json={
             "message":"Shard ID of the node retrieved successfully", 
-            "shard-id":ring_index
+            "shard-id":current_shard
         }, 
         status=200
     )
@@ -44,7 +41,7 @@ def shardIds():
     )    
 
 @app.route('/key-value-store-shard/shard-id-members/<id>', methods=['GET'])
-def shardIds(id):
+def shardMembers(id):
     global SHARDS
     return app.response_class(
         json={
@@ -56,7 +53,22 @@ def shardIds(id):
 
 @app.route('/key-value-store-shard/reshard', methods=['GET'])
 def reshard():
-    pass
+    print('Todo')
+
+###################### Shard Helper Functions ######################
+def getShardID(value): 
+    global SHARD_COUNT
+    return hash(value)%SHARD_COUNT
+
+def addNodeToShards(socket):
+    global SHARDS
+    shard = getShardID(socket) + 1
+    if shard not in SHARDS:
+        SHARDS[shard] = []
+    SHARDS[shard].append(socket)
+
+def removeNodeFromShards(socket):
+    SHARDS[getShardID(socket)].remove(socket)
 
 ###################### View Operations ######################
 @app.route('/key-value-store-view/', methods=['GET'])
@@ -94,13 +106,13 @@ def delView(socket=None):
             data), status=404, mimetype='application/json')
         return response
     for repl in REPLICAS:
-        URL = 'http://' + repl + '/broadcast-receiving/'+socket
+        URL = 'http://' + repl + '/view-broadcast-receive/'+socket
         try:
             requests.delete(url=URL)
         except requests.exceptions.ConnectionError:
             print(repl, 'is dead', file=sys.stderr)
 
-    if len(SHARDS[socket]) <= 2:    #Not sure if replica will be removed by now
+    if len(SHARDS[getShardID(socket)]) <= 2:    #Not sure if replica will be removed by now
         reshard()
 
     data = {"message": "Replica deleted successfully from the view"}
@@ -125,7 +137,7 @@ def putView():
             data), status=404, mimetype='application/json')
         return response
     for repl in REPLICAS:
-        URL = 'http://' + repl + '/broadcast-receiving/'+socket
+        URL = 'http://' + repl + '/view-broadcast-receive/'+socket
         print('trying ', URL, file=sys.stderr)
         try:
             # print(url,file=sys.stderr)
@@ -141,8 +153,8 @@ def putView():
     return response
 #######################################################################
 
-###################### Receiving from broadcasts ######################
-@app.route('/broadcast-receiving/<socket>', methods=['DELETE'])
+###################### Receiving view broadcasts ######################
+@app.route('/view-broadcast-receive/<socket>', methods=['DELETE'])
 def delSelfView(socket):
     global REPLICAS
     global SHARDS
@@ -154,8 +166,8 @@ def delSelfView(socket):
             data), status=404, mimetype='application/json')
         return response
     
-    del REPLICAS[socket]
-    SHARDS[hashNode(socket)].remove(socket)
+    REPLICAS.remove(socket)
+    removeNodeFromShards(socket)
 
     #Returning Response
     data = {"message": "Replica deleted successfully from the view"}
@@ -165,7 +177,7 @@ def delSelfView(socket):
     return response
 
 
-@app.route('/broadcast-receiving/<socket>', methods=['PUT'])
+@app.route('/view-broadcast-receive/<socket>', methods=['PUT'])
 def putSelfView(socket):
     global REPLICAS
     print('PUTTING', socket, file=sys.stderr)
@@ -195,7 +207,7 @@ def get(key):
         return response
     else:
         keyData = dictionary[key]
-        if isinstance(keyData[2], list):
+        if isinstance(keyData[2], list): 
             causal_meta = list_to_string(keyData[2])
         else:
             causal_meta = str(keyData[1])
@@ -212,7 +224,6 @@ def get(key):
 def put(key):
     global dictionary
     global versionlist
-    global queue
     global REPLICAS
     response = ""
     value = get_value()
@@ -287,15 +298,12 @@ def delete(key):
             data), status=201, mimetype='application/json')
         return response
 
-    # else
-            # wait till previous versions are done
 def holdThread(causal_meta):
     while list_to_string(versionlist) != causal_meta:
         time.sleep(0.5)
 
-###########################################################################
 ################## Key Value Store Broadcast Receving ##################
-@app.route('/broadcast-receive/<key>', methods=['GET'])
+@app.route('/kvs-broadcast-receive/<key>', methods=['GET'])
 def broadcastget(key):
     global dictionary
     global versionlist
@@ -322,7 +330,7 @@ def broadcastget(key):
         return response
 
 
-@app.route('/broadcast-receive/<key>', methods=['PUT'])
+@app.route('/kvs-broadcast-receive/<key>', methods=['PUT'])
 def broadcastput(key):
     global dictionary
     global versionlist
@@ -362,7 +370,7 @@ def broadcastput(key):
             return response
 
 
-@app.route('/broadcast-receive/<key>', methods=['PUT'])
+@app.route('/kvs-broadcast-receive/<key>', methods=['PUT'])
 def broadcastdelete(key):
     global dictionary
     global versionlist
@@ -393,17 +401,6 @@ def broadcastdelete(key):
 def ping():
     return Response("{'Live': 'True'}", status=200, mimetype='application/json')
 
-def hashNode(socket):
-    global SHARD_COUNT
-    return hash(socket)%SHARD_COUNT
-
-def addNodeToShards(socket):
-    global SHARDS
-    shard = hashNode(repl) + 1
-    if shard not in SHARDS:
-        SHARDS[shard] = []
-    SHARDS[shard].append(repl)
-
 def list_to_string(_versionlist):
     liststr = ""
     for i in _versionlist[:-1]:
@@ -422,7 +419,8 @@ def onStart():
     global SOCKET
     global dictionary
     global versionlist
-    # print(REPLICAS, file=sys.stderr)
+    global current_shard
+    current_shard = getShardID(SOCKET)
     if REPLICAS:
         for repl in REPLICAS:
             if repl != SOCKET:
@@ -442,9 +440,7 @@ def onStart():
                     break
                 except requests.exceptions.ConnectionError:
                     print(repl, 'failed', file=sys.stderr)
-        print(dictionary, file=sys.stderr)
-        print(versionlist, file=sys.stderr)
-
+            addNodeToShards(repl)
 
 def get_ip(address):
     return address.split(":")[0]
@@ -488,7 +484,7 @@ def get_curr_version():
 def broadcast_request(key):
     for repl in REPLICAS:
         if repl != SOCKET:
-            URL = 'http://' + repl + '/broadcast-receive/' + key
+            URL = 'http://' + repl + '/kvs-broadcast-receive/' + key
             try:
                 resp = requests.request(
                     method=request.method,
