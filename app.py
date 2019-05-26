@@ -186,28 +186,25 @@ def put(key):
         return response
     else:
         try:
-            if list_to_string(versionlist) == causal_meta:
-                if key in dictionary:
-                    message = "Updated successfully"
-                    status = 200
-                else:
-                    message = "Added successfully"
-                    status = 201
-
-                keyData = [value, versionlist[-1]+1,versionlist]  # individual key
-                dictionary[key] = keyData
-                versionlist.append(versionlist[-1]+1)
-
-                broadcast_request(key)
-
-                data = {"message": message, "version": str(
-                    versionlist[-1]), "causal-metadata": list_to_string(versionlist)}
-                response = app.response_class(response=json.dumps(
-                    data), status=status, mimetype='application/json')
-                return response
+            holdThread(causal_meta)
+            if key in dictionary:
+                message = "Updated successfully"
+                status = 200
             else:
-                queue.append(versionlist[-1]+1)
+                message = "Added successfully"
+                status = 201
 
+            keyData = [value, versionlist[-1]+1,versionlist]  # individual key
+            dictionary[key] = keyData
+            versionlist.append(versionlist[-1]+1)
+
+            broadcast_request(key)
+
+            data = {"message": message, "version": str(
+                versionlist[-1]), "causal-metadata": list_to_string(versionlist)}
+            response = app.response_class(response=json.dumps(
+                data), status=status, mimetype='application/json')
+            return response
         except:
             while not dictionary:
                 onStart()
@@ -221,29 +218,31 @@ def delete(key):
     response = ""
     causal_meta = get_causal_meta()
 
-    if list_to_string(versionlist) == causal_meta:
-        if key in dictionary:
-            keyData = ["",versionlist[-1]+1,versionlist]  # individual key
-            dictionary[key] = keyData
-            versionlist.append(versionlist[-1]+1)
+    holdThread(causal_meta)
+    if key in dictionary:
+        keyData = ["",versionlist[-1]+1,versionlist]  # individual key
+        dictionary[key] = keyData
+        versionlist.append(versionlist[-1]+1)
 
-            broadcast_request(key)
+        broadcast_request(key)
 
-            data = {"message": "Deleted successfully", "version": str(
-                versionlist[-1]), "causal-metadata": list_to_string(versionlist)}
-            response = app.response_class(response=json.dumps(
-                data), status=200, mimetype='application/json')
-            return response
-        else:
-            data = {"DoesExist": False, "error": "key doesn't exist",
-                    "message": "error in deleting"}
-            response = app.response_class(response=json.dumps(
-                data), status=201, mimetype='application/json')
-            return response
+        data = {"message": "Deleted successfully", "version": str(
+            versionlist[-1]), "causal-metadata": list_to_string(versionlist)}
+        response = app.response_class(response=json.dumps(
+            data), status=200, mimetype='application/json')
+        return response
+    else:
+        data = {"DoesExist": False, "error": "key doesn't exist",
+                "message": "error in deleting"}
+        response = app.response_class(response=json.dumps(
+            data), status=201, mimetype='application/json')
+        return response
 
     # else
             # wait till previous versions are done
-
+def holdThread(causal_meta):
+    while list_to_string(versionlist) != causal_meta:
+        time.sleep(0.5)
 
 ###########################################################################
 ################## Key Value Store Broadcast Receving ##################
