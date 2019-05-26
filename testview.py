@@ -24,7 +24,7 @@ view = replica1SocketAddress + "," + replica2SocketAddress + "," + replica3Socke
 
 A = False
 B = False
-C = False
+C = True
 D = True
 ############################### Docker Linux Commands ###########################################################
 def removeSubnet(subnetName):

@@ -7,14 +7,56 @@ import time
 
 dictionary = {}
 
-REPLICAS = os.environ.get('VIEW').split(',')
+REPLICAS = os.environ.get('VIEW').split(',')  
+SHARDS = {}     #Dict of shard # to list of nodes
 SOCKET = os.environ.get('SOCKET_ADDRESS')
+SHARD_COUNT = int(os.environ.get('SHARD_COUNT'))
 app = Flask(__name__)
 
-
-queue = []
+ring_index = hashNode(SOCKET)
 vectorclock = {}
 versionlist = []
+
+for repl in REPLICAS:
+    addNodeToShards(repl)
+
+###################### Shard Operations ######################
+@app.route('/key-value-store-shard/node-shard-id', methods=['GET'])
+def getShardId():
+    global ring_index
+    return app.response_class(
+        json={
+            "message":"Shard ID of the node retrieved successfully", 
+            "shard-id":ring_index
+        }, 
+        status=200
+    )
+
+@app.route('/key-value-store-shard/shard-ids', methods=['GET'])
+def shardIds():
+    global SHARDS
+    return app.response_class(
+        json={
+            "message":"Shard IDs retrieved successfully",
+            "shard-ids":",".join(SHARDS.keys())
+        },
+        status=200
+    )    
+
+@app.route('/key-value-store-shard/shard-id-members/<id>', methods=['GET'])
+def shardIds(id):
+    global SHARDS
+    return app.response_class(
+        json={
+            "message":"Members of shard ID retrieved successfully",
+            "shard-id-members":",".join(SHARDS[id])
+        },
+        status=200
+    )    
+
+@app.route('/key-value-store-shard/reshard', methods=['GET'])
+def reshard():
+    pass
 
 ###################### View Operations ######################
 @app.route('/key-value-store-view/', methods=['GET'])
@@ -42,6 +84,7 @@ def getView():
 def delView(socket=None):
     global REPLICAS
     global SOCKET
+    global SHARDS
     if socket == None:
         socket = request.get_json()['socket-address']
     if socket not in REPLICAS:
@@ -56,6 +99,9 @@ def delView(socket=None):
             requests.delete(url=URL)
         except requests.exceptions.ConnectionError:
             print(repl, 'is dead', file=sys.stderr)
+
+    if len(SHARDS[socket]) <= 2:    #Not sure if replica will be removed by now
+        reshard()
 
     data = {"message": "Replica deleted successfully from the view"}
     response = app.response_class(response=json.dumps(
@@ -87,7 +133,7 @@ def putView():
             # print(repl,file=sys.stderr)
         except requests.exceptions.ConnectionError:
             print(repl, 'is dead', file=sys.stderr)
-    print(dictionary, file=sys.stderr)
+    
     data = {"message": "Replica added successfully to the view",
             "dict": dictionary, "vl": versionlist}
     response = app.response_class(response=json.dumps(
@@ -99,6 +145,7 @@ def putView():
 @app.route('/broadcast-receiving/<socket>', methods=['DELETE'])
 def delSelfView(socket):
     global REPLICAS
+    global SHARDS
     print('Deleting', socket, file=sys.stderr)
     if socket not in REPLICAS:
         data = {"error": "Socket address does not exist in the view",
@@ -106,7 +153,11 @@ def delSelfView(socket):
         response = app.response_class(response=json.dumps(
             data), status=404, mimetype='application/json')
         return response
-    REPLICAS.remove(socket)
+    
+    del REPLICAS[socket]
+    SHARDS[hashNode(socket)].remove(socket)
+
+    #Returning Response
     data = {"message": "Replica deleted successfully from the view"}
 
     response = app.response_class(response=json.dumps(
@@ -124,7 +175,9 @@ def putSelfView(socket):
         response = app.response_class(response=json.dumps(
             data), status=404, mimetype='application/json')
         return response
+
     REPLICAS.append(socket)
+    addNodeToShards(socket)
 
     data = {"message": "Replica successfully added to view"}
     response = app.response_class(response=json.dumps(
@@ -344,6 +397,16 @@ def broadcastdelete(key):
 def ping():
     return Response("{'Live': 'True'}", status=200, mimetype='application/json')
 
+def hashNode(socket):
+    global SHARD_COUNT
+    return hash(socket)%SHARD_COUNT
+
+def addNodeToShards(socket):
+    global SHARDS
+    shard = hashNode(repl) + 1
+    if shard not in SHARDS:
+        SHARDS[shard] = []
+    SHARDS[shard].append(repl)
 
 def list_to_string(_versionlist):
     liststr = ""
