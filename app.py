@@ -222,12 +222,8 @@ def put(key):
     # on any other PUT operation. Therefore, it generates unique version <V1> for the
     # PUT operation, stores the key, value, the version, and corresponding causal metadata
     # (empty in this case)
-    if causal_meta == "":
-        keyData = []  # individual key
-        keyData.append(value)  # value of key
-        keyData.append(1)  # version
-        # corresponding causal metadata (empty in this case) 0 = ""
-        keyData.append("")
+    if causal_meta == "": #If you are putting the first message
+        keyData = [value,1,""]  # individual key
         dictionary[key] = keyData
 
         broadcast_request(key)
@@ -258,7 +254,7 @@ def put(key):
             response = app.response_class(response=json.dumps(
                 data), status=status, mimetype='application/json')
             return response
-        except:
+        except:     #If no versionlist
             while not dictionary:
                 onStart()
             return put(key)
