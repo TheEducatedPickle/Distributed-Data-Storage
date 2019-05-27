@@ -4,6 +4,7 @@ import re
 import sys
 import os
 import time
+import threading
 
 dictionary = {}
 
@@ -58,11 +59,11 @@ def reshard():
 ###################### Shard Helper Functions ######################
 def getShardID(value): 
     global SHARD_COUNT
-    return hash(value)%SHARD_COUNT
+    return hash(value)%SHARD_COUNT + 1
 
 def addNodeToShards(socket):
     global SHARDS
-    shard = getShardID(socket) + 1
+    shard = getShardID(socket)
     if shard not in SHARDS:
         SHARDS[shard] = []
     SHARDS[shard].append(socket)
@@ -265,11 +266,9 @@ def put(key):
             response = app.response_class(response=json.dumps(
                 data), status=status, mimetype='application/json')
             return response
-        except:     #If no versionlist
-            while not dictionary:
-                onStart()
+        except:
+            onStart()
             return put(key)
-
 
 @app.route('/key-value-store/<key>', methods=['DELETE'])
 def delete(key):
@@ -423,6 +422,8 @@ def onStart():
     current_shard = getShardID(SOCKET)
     if REPLICAS:
         for repl in REPLICAS:
+            addNodeToShards(repl)
+        for repl in REPLICAS:
             if repl != SOCKET:
                 time.sleep(1)
                 try:
@@ -440,7 +441,6 @@ def onStart():
                     break
                 except requests.exceptions.ConnectionError:
                     print(repl, 'failed', file=sys.stderr)
-            addNodeToShards(repl)
 
 def get_ip(address):
     return address.split(":")[0]
