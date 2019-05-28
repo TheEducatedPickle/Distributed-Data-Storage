@@ -47,7 +47,7 @@ def shardMembers(id):
     return app.response_class(
         json={
             "message":"Members of shard ID retrieved successfully",
-            "shard-id-members":",".join(SHARDS[id])
+            "shard-id-members":",".join(getNodesInShard(id))
         },
         status=200
     )    
@@ -60,6 +60,10 @@ def reshard():
 def getShardID(value): 
     global SHARD_COUNT
     return hash(value)%SHARD_COUNT + 1
+
+def getNodesInShard(id):
+    global SHARDS
+    return SHARDS[id]
 
 def addNodeToShards(socket):
     global SHARDS
@@ -113,7 +117,7 @@ def delView(socket=None):
         except requests.exceptions.ConnectionError:
             print(repl, 'is dead', file=sys.stderr)
 
-    if len(SHARDS[getShardID(socket)]) <= 2:    #Not sure if replica will be removed by now
+    if len(getNodesInShard(getShardID(socket))) <= 2:    #Not sure if replica will be removed by now
         reshard()
 
     data = {"message": "Replica deleted successfully from the view"}
@@ -267,7 +271,8 @@ def put(key):
                 data), status=status, mimetype='application/json')
             return response
         except:
-            onStart()
+            while not dictionary:
+                onStart()
             return put(key)
 
 @app.route('/key-value-store/<key>', methods=['DELETE'])
