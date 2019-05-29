@@ -121,9 +121,6 @@ def delView(socket=None):
         except requests.exceptions.ConnectionError:
             print(repl, 'is dead', file=sys.stderr)
 
-    if len(getNodesInShard(getShardID(socket))) <= 2:    #Not sure if replica will be removed by now
-        reshard()
-
     data = {"message": "Replica deleted successfully from the view"}
     response = app.response_class(response=json.dumps(
         data), status=200, mimetype='application/json')
