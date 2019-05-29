@@ -56,6 +56,9 @@ def shardMembers(id):
 def reshard():
     print('Todo')
 
+@app.route('/key-value-store-shard/shard-id-key-count/<shardid>',methods = ['GET'])
+def keyCount(shardid):
+    return len(getNodesInShard(shardid))
 ###################### Shard Helper Functions ######################
 def getShardID(value): 
     global SHARD_COUNT
