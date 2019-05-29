@@ -52,13 +52,22 @@ def shardMembers(id):
         status=200
     )    
 
-@app.route('/key-value-store-shard/reshard', methods=['GET'])
-def reshard():
-    print('Todo')
-
 @app.route('/key-value-store-shard/shard-id-key-count/<shardid>',methods = ['GET'])
 def keyCount(shardid):
     return len(getNodesInShard(shardid))
+
+@app.route('/key-value-store-shard/add-member/<socket>', methods = ['PUT'])
+def addNodeToShards(socket):
+    global SHARDS
+    shard = getShardID(socket)
+    if shard not in SHARDS:
+        SHARDS[shard] = []
+    SHARDS[shard].append(socket)
+
+@app.route('/key-value-store-shard/reshard', methods=['PUT'])
+def reshard():
+    print('Todo')
+
 ###################### Shard Helper Functions ######################
 def getShardID(value): 
     global SHARD_COUNT
@@ -67,13 +76,6 @@ def getShardID(value):
 def getNodesInShard(id):
     global SHARDS
     return SHARDS[id]
-
-def addNodeToShards(socket):
-    global SHARDS
-    shard = getShardID(socket)
-    if shard not in SHARDS:
-        SHARDS[shard] = []
-    SHARDS[shard].append(socket)
 
 def removeNodeFromShards(socket):
     SHARDS[getShardID(socket)].remove(socket)
