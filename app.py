@@ -4,7 +4,6 @@ import re
 import sys
 import os
 import time
-import hashlib
 
 dictionary = {}
 
@@ -209,27 +208,22 @@ def get(key):
     global dictionary
     global versionlist
     response = ""
-    shard_id = getShardID(key)  #determines the shard-id of key
-    
-    if shard_id != current_shard:                   #not current node's shard-id
-        forward_request(key, shard_id)
+    if key not in dictionary:
+        response = broadcast_request(key)
+        return response
     else:
-        if key not in dictionary || dictionary[key] == None:
-            response = broadcast_request(key, shard_id)
-            return response
+        keyData = dictionary[key]
+        if isinstance(keyData[2], list): 
+            causal_meta = list_to_string(keyData[2])
         else:
-            keyData = dictionary[key]
-            if isinstance(keyData[2], list):
-                causal_meta = list_to_string(keyData[2])
-            else:
-                causal_meta = str(keyData[1])
+            causal_meta = str(keyData[1])
 
-            data = {"doesExist": True,
-                    "message": "Retrieved successfully", "version": str(keyData[1]), "causal-metadata":
-                        causal_meta,  "value": keyData[0]}
-            response = app.response_class(response=json.dumps(
-                data), status=200, mimetype='application/json')
-            return response
+        data = {"doesExist": True,
+                "message": "Retrieved successfully", "version": str(keyData[1]), "causal-metadata":
+                    causal_meta,  "value": keyData[0]}
+        response = app.response_class(response=json.dumps(
+            data), status=200, mimetype='application/json')
+        return response
 
 
 @app.route('/key-value-store/<key>', methods=['PUT'])
@@ -240,52 +234,47 @@ def put(key):
     response = ""
     value = get_value()
     causal_meta = get_causal_meta()
-    shard_id = getShardID(key)  #determines the shard-id of key
 
-    if shard_id != current_shard:                   #not current node's shard-id
-        forward_request(key, shard_id)
-    
+    # Becuase it is empty, the replica knows that the request is not causally dependent
+    # on any other PUT operation. Therefore, it generates unique version <V1> for the
+    # PUT operation, stores the key, value, the version, and corresponding causal metadata
+    # (empty in this case)
+    if causal_meta == "": #If you are putting the first message
+        keyData = [value,1,""]  # individual key
+        dictionary[key] = keyData
+
+        broadcast_request(key)
+        versionlist.append(1)
+        data = {"message": "Added successfully",
+                "version": "1", "causal-metadata": "1"}
+        response = app.response_class(response=json.dumps(
+            data), status=201, mimetype='application/json')
+        return response
     else:
-        # Becuase it is empty, the replica knows that the request is not causally dependent
-        # on any other PUT operation. Therefore, it generates unique version <V1> for the
-        # PUT operation, stores the key, value, the version, and corresponding causal metadata
-        # (empty in this case)
-        if causal_meta == "": #If you are putting the first message
-            keyData = [value,1,""]  # individual key
+        try:
+            holdThread(causal_meta)
+            if key in dictionary:
+                message = "Updated successfully"
+                status = 200
+            else:
+                message = "Added successfully"
+                status = 201
+
+            keyData = [value, versionlist[-1]+1,versionlist]  # individual key
             dictionary[key] = keyData
+            versionlist.append(versionlist[-1]+1)
 
-            broadcast_request(key, shard_id)
-            versionlist.append(1)
-            data = {"message": "Added successfully",
-                "version": "1", "causal-metadata": "1", "shard-id": shard_id}
+            broadcast_request(key)
+
+            data = {"message": message, "version": str(
+                versionlist[-1]), "causal-metadata": list_to_string(versionlist)}
             response = app.response_class(response=json.dumps(
-                data), status=201, mimetype='application/json')
+                data), status=status, mimetype='application/json')
             return response
-        else:
-            try:
-                holdThread(causal_meta)
-                if key in dictionary:
-                    message = "Updated successfully"
-                    status = 200
-                else:
-                    message = "Added successfully"
-                    status = 201
-
-                keyData = [value, versionlist[-1]+1,versionlist]  # individual key
-                dictionary[key] = keyData
-                versionlist.append(versionlist[-1]+1)
-
-                broadcast_request(key, shard_id)
-
-                data = {"message": message, "version": str(
-                    versionlist[-1]), "causal-metadata": list_to_string(versionlist), "shard-id": shard_id}
-                response = app.response_class(response=json.dumps(
-                    data), status=status, mimetype='application/json')
-                return response
-            except:
-                while not dictionary:
-                    onStart()
-                return put(key)
+        except:
+            while not dictionary:
+                onStart()
+            return put(key)
 
 @app.route('/key-value-store/<key>', methods=['DELETE'])
 def delete(key):
@@ -293,29 +282,26 @@ def delete(key):
     global versionlist
     response = ""
     causal_meta = get_causal_meta()
-    shard_id = getShardID(key)  #determines the shard-id of key
-    if shard_id != current_shard:                   #not current node's shard-id
-        forward_request(key, shard_id)
+
+    holdThread(causal_meta)
+    if key in dictionary:
+        keyData = ["",versionlist[-1]+1,versionlist]  # individual key
+        dictionary[key] = keyData
+        versionlist.append(versionlist[-1]+1)
+
+        broadcast_request(key)
+
+        data = {"message": "Deleted successfully", "version": str(
+            versionlist[-1]), "causal-metadata": list_to_string(versionlist)}
+        response = app.response_class(response=json.dumps(
+            data), status=200, mimetype='application/json')
+        return response
     else:
-        holdThread(causal_meta)
-        if key in dictionary:
-            keyData = ["",versionlist[-1]+1,versionlist]  # individual key
-            dictionary[key] = keyData
-            versionlist.append(versionlist[-1]+1)
-
-            broadcast_request(key, shard_id)
-
-            data = {"message": "Deleted successfully", "version": str(
-                versionlist[-1]), "causal-metadata": list_to_string(versionlist), "shard-id": shard_id}
-            response = app.response_class(response=json.dumps(
-                data), status=200, mimetype='application/json')
-            return response
-        else:
-            data = {"DoesExist": False, "error": "key doesn't exist",
-                    "message": "error in deleting"}
-            response = app.response_class(response=json.dumps(
-                data), status=201, mimetype='application/json')
-            return response
+        data = {"DoesExist": False, "error": "key doesn't exist",
+                "message": "error in deleting"}
+        response = app.response_class(response=json.dumps(
+            data), status=201, mimetype='application/json')
+        return response
 
 def holdThread(causal_meta):
     while list_to_string(versionlist) != causal_meta:
@@ -500,34 +486,9 @@ def get_curr_version():
     global vectorclock
     return vectorclock[SOCKET]
 
-def forward_request(key, shard_id):
-    for repl in getNodesInShard(shard_id):
-        URL = 'http://' + repl + '/kvs-broadcast-receive/' + key
-        try:
-            resp = requests.request(
-                method=request.method,
-                url=URL,
-                headers={key: value for (key, value)
-                in request.headers if key != 'Host'},
-                data=request.get_data(),
-                timeout=10,
-                allow_redirects=False)
 
-                excluded_headers = ['content-encoding',
-                                    'content-length', 'transfer-encoding', 'connection']
-                headers = [(name, value) for (name, value) in resp.raw.headers.items()
-                           if name.lower() not in excluded_headers]
-                
-                response = Response(resp.content, resp.status_code, headers)
-                return response
-                break
-        
-        # handles error if main instance is not running
-        except requests.exceptions.ConnectionError:
-            print(repl, 'is dead', file=sys.stderr)
-
-def broadcast_request(key, shard_id):
-    for repl in getNodesInShard(shard_id):
+def broadcast_request(key):
+    for repl in REPLICAS:
         if repl != SOCKET:
             URL = 'http://' + repl + '/kvs-broadcast-receive/' + key
             try:
@@ -553,6 +514,14 @@ def broadcast_request(key, shard_id):
                 print(repl, 'is dead', file=sys.stderr)
                 delView(repl)
 
+
+def makeKeyData(key, value):
+    global dictionary
+    keyData = []  # individual key
+    keyData.append(value)  # value of key
+    keyData.append(versionlist[-1]+1)  # version
+    keyData.append(versionlist)  # corresponding causal metadata
+    dictionary[key] = keyData
 
 
 if __name__ == '__main__':
