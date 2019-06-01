@@ -65,7 +65,28 @@ def addNodeToShards(socket):
 
 @app.route('/key-value-store-shard/reshard', methods=['PUT'])
 def reshard():
-    print('Todo')
+    global REPLICAS
+    global SHARDS
+    dict = request.get_json()
+    if dict['shard-count']*2 > len(REPLICAS):
+        data = {"message": 'Not enough nodes to provide fault-tolerance with the given shard count!'}
+        response = app.response_class(response=json.dumps(
+            data), status=400, mimetype='application/json')
+    else:
+        if dict['shard-count']==len(SHARDS):
+            fault_tolerant = []
+            non_fault_tolerant = []
+            for key,value in SHARDS:
+                if len(value) > 1:
+                    fault_tolerant.append(key)
+                else:
+                    non_fault_tolerant.append(key)
+            
+            for 
+
+
+        
+
 
 ###################### Shard Helper Functions ######################
 def getShardID(value): 
