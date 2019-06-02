@@ -11,7 +11,10 @@ DICTIONARY = {}
 REPLICAS = os.environ.get('VIEW').split(',')  
 SHARDS = {}     #Dict of shard # to list of nodes
 SOCKET = os.environ.get('SOCKET_ADDRESS')
-SHARD_COUNT = int(os.environ.get('SHARD_COUNT'))
+try:
+    SHARD_COUNT = int(os.environ.get('SHARD_COUNT'))
+except:
+    SHARD_COUNT = None
 app = Flask(__name__)
 
 current_shard = None
@@ -59,27 +62,43 @@ def reshard():
     global SHARD_COUNT
     global SOCKET
     global REPLICAS
+    global DICTIONARY
+
     dict = request.get_json()
     if int(dict['shard-count'])*2 > len(REPLICAS):
         data = {"message": 'Not enough nodes to provide fault-tolerance with the given shard count!'}
         response = app.response_class(response=json.dumps(
             data), status=400, mimetype='application/json')
         return response
-    else:
-        SHARDS={}
-        SHARD_COUNT=dict['shard-count']
-        rIndex = 0
-        for i in range(1,dict['shard-count']+1):
-            SHARDS[i] = []
-            while len(SHARDS[i]) < 2:
-                SHARDS[i].append(REPLICAS[rIndex])
-                rIndex += 1
-        sIndex = 1
-        while rIndex < len(REPLICAS):
-            SHARDS[sIndex].append(REPLICAS[rIndex])
-            rIndex += 1
-            sIndex = (sIndex+1) % SHARD_COUNT
+    SHARDS={}
+    SHARD_COUNT=dict['shard-count']
 
+    tempDict={}
+    for shard in SHARDS:
+        for node in shard:
+            URL = 'http://' + node + '/request-dict/'
+            try:
+                resp = requests.get(url=URL,file=sys.stderr).json()
+                print(resp)
+                tempDict.update(resp['kvs'])
+            except requests.exceptions.ConnectionError:
+                delView(node)
+    print('----------------',file=sys.stderr)
+
+    #Resharding
+    rIndex = 0
+    for i in range(1,dict['shard-count']+1):
+        SHARDS[i] = []
+        while len(SHARDS[i]) < 2:
+            SHARDS[i].append(REPLICAS[rIndex])
+            rIndex += 1
+    sIndex = 1
+    while rIndex < len(REPLICAS):
+        SHARDS[sIndex].append(REPLICAS[rIndex])
+        rIndex += 1
+        sIndex = (sIndex+1) % SHARD_COUNT
+
+    #Updating shards with new view
     for node in REPLICAS:
         URL = 'http://' + node + '/replace-shard-view/'
         try:
@@ -89,7 +108,18 @@ def reshard():
     print('RESHARDED DICT:',SHARDS,file=sys.stderr)
     broadcastShardOverwrite()
 
-###################### Shard Broadcast Receiving ######################
+    #Updating dictionaries
+    DICTIONARY = {}
+    for key,value in tempDict.items():
+        data={"value":value,"causal-metadata":""}
+        URL='http://'+SOCKET+'/key-value-store/' + key
+        requests.put(url=URL, data=data)
+
+    data = {"message":"Resharding done successfully"}
+    response = app.response_class(response=json.dumps(data), status=200,mimetype='application/json')
+    return response
+
+###################### Shard Receiving ######################
 @app.route('/replace-shard-view/', methods=['PUT']) 
 def replaceShardView():
     global SHARDS
@@ -98,7 +128,7 @@ def replaceShardView():
     return app.response_class(response=json.dumps(
             {'accepted':'true'}), status=200, mimetype='application/json')
 
-@app.route('/request-kvs/', methods=['GET'])
+@app.route('/request-dict/', methods=['GET'])
 def requestKvs():
     global DICTIONARY
     data = {"kvs": DICTIONARY, "vl": versionlist}
@@ -112,23 +142,19 @@ def requestShardView():
     data = {"shards": SHARDS}
     response = app.response_class(response=json.dumps(
         data), status=200, mimetype='application/json')
-    return response
-
-@app.route('/shard-broadcast-receive/',methods=['PUT'])
-def putNodeInShard(socket):
-    global SHARDS
-    
+    return response    
 
 ###################### Shard Helper Functions ######################
 def broadcastShardOverwrite():
     global SHARDS
-    data = {"shard-dict":SHARDS}
+    global SOCKET
     for node in REPLICAS:
-        try:
-            URL = 'http://' + node + '/replace-shard-view/'
-            requests.put(url=URL,data=json.dumps(data))
-        except requests.exceptions.ConnectionError:
-            delView(node)
+        if node != SOCKET:
+            try:
+                URL = 'http://' + node + '/replace-shard-view/'
+                requests.put(url=URL,json={"shard-dict":SHARDS},timeout=5)
+            except requests.exceptions.ConnectionError:
+                delView(node)
 
 def getShardID(value):
     global SHARD_COUNT
@@ -160,7 +186,10 @@ def addNodesBalanced(repl):
         current_shard = i
 
 def removeNodeFromShards(socket):
-    SHARDS[getShardID(socket)].remove(socket)
+    for shard in SHARDS.values():
+        if socket in shard:
+            shard.remove(socket)
+        return
 
 ###################### View Operations ######################
 @app.route('/key-value-store-view/', methods=['GET'])
@@ -215,16 +244,16 @@ def putView():
     global REPLICAS
     global SOCKET
     global DICTIONARY
-    socket = request.get_json()
-    socket = socket['socket-address']
+    socket = request.get_json()['socket-address']
     if socket in REPLICAS:
         data = {"error": "Socket address already exists in the view",
-                "message": "Error in PUT", "dict": DICTIONARY, "vl": versionlist}
+                "message": "Error in PUT"}
         response = app.response_class(response=json.dumps(
             data), status=404, mimetype='application/json')
         return response
     for repl in REPLICAS:
         URL = 'http://' + repl + '/view-broadcast-receive/'+socket
+        print('trying ', URL, file=sys.stderr)
         try:
             # print(url,file=sys.stderr)
             requests.put(url=URL)
@@ -232,8 +261,7 @@ def putView():
         except requests.exceptions.ConnectionError:
             print(repl, 'is dead', file=sys.stderr)
     
-    data = {"message": "Replica added successfully to the view",
-            "dict": DICTIONARY, "vl": versionlist}
+    data = {"message": "Replica added successfully to the view"}
     response = app.response_class(response=json.dumps(
         data), status=200, mimetype='application/json')
     return response
@@ -252,6 +280,7 @@ def delSelfView(socket):
         return response
     
     REPLICAS.remove(socket)
+    removeNodeFromShards(socket)
 
     #Returning Response
     data = {"message": "Replica deleted successfully from the view"}
@@ -519,7 +548,7 @@ def onStart():
                 try:
                     URL = 'http://' + repl + '/key-value-store-view/'
                     request = requests.put(
-                        url=URL, data=json.dumps({'socket-address': SOCKET}), timeout=5)
+                        url=URL, json={'socket-address': SOCKET}, timeout=5)
 
                     URL = 'http://' + repl + '/request-shard-view/'
                     request = requests.get(url=URL, timeout=5).json()
@@ -542,7 +571,7 @@ def onStart():
 
     for node in getNodesInShard(current_shard):
         try:
-            URL = 'http://' + node + '/request-kvs/'
+            URL = 'http://' + node + '/request-dict/'
             request = requests.get(url=URL, timeout=5).json()
             DICTIONARY = request['kvs']
             versionlist = request['vl']

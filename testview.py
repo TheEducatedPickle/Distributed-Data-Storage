@@ -398,7 +398,7 @@ class TestHW3(unittest.TestCase):
         runReplica(replica1HostPort, replica1Ip, subnetName, "replica1")
         runReplica(replica2HostPort, replica2Ip, subnetName, "replica2")
         runReplica(replica3HostPort, replica3Ip, subnetName, "replica3")
-
+        
         print("\n###################### Disconnecting replica2 from the network ######################\n")
         disconnectFromNetwork(subnetName, "replica2")
         time.sleep(0.5)
