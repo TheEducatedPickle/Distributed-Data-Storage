@@ -64,30 +64,30 @@ def reshard():
     global REPLICAS
     global DICTIONARY
 
-    dict = request.get_json()
-    if int(dict['shard-count'])*2 > len(REPLICAS):
+    shardCount = request.get_json()['shard-count']
+    if int(shardCount)*2 > len(REPLICAS):
         data = {"message": 'Not enough nodes to provide fault-tolerance with the given shard count!'}
         response = app.response_class(response=json.dumps(
             data), status=400, mimetype='application/json')
         return response
-    SHARDS={}
-    SHARD_COUNT=dict['shard-count']
 
     tempDict={}
-    for shard in SHARDS:
+    for shard in SHARDS.values():
         for node in shard:
             URL = 'http://' + node + '/request-dict/'
             try:
-                resp = requests.get(url=URL,file=sys.stderr).json()
-                print(resp)
-                tempDict.update(resp['kvs'])
+                resp = requests.get(url=URL).json()
+                print(resp,file=sys.stderr)
+                tempDict = {**tempDict,**resp['kvs']}
             except requests.exceptions.ConnectionError:
                 delView(node)
-    print('----------------',file=sys.stderr)
+    print('Combined Dictionary:',tempDict, file=sys.stderr)
 
+    SHARDS={}
+    SHARD_COUNT=shardCount
     #Resharding
     rIndex = 0
-    for i in range(1,dict['shard-count']+1):
+    for i in range(1,shardCount+1):
         SHARDS[i] = []
         while len(SHARDS[i]) < 2:
             SHARDS[i].append(REPLICAS[rIndex])
