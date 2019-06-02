@@ -93,7 +93,10 @@ def reshard():
 @app.route('/replace-shard-view/', methods=['PUT']) 
 def replaceShardView():
     global SHARDS
+    print(request.get_json(),file=sys.stderr)
     SHARDS = request.get_json()['shard-dict']
+    return app.response_class(response=json.dumps(
+            {'accepted':'true'}), status=200, mimetype='application/json')
 
 @app.route('/request-kvs/', methods=['GET'])
 def requestKvs():
@@ -516,7 +519,7 @@ def onStart():
                 try:
                     URL = 'http://' + repl + '/key-value-store-view/'
                     request = requests.put(
-                        url=URL, json={'socket-address': SOCKET}, timeout=5)
+                        url=URL, data=json.dumps({'socket-address': SOCKET}), timeout=5)
 
                     URL = 'http://' + repl + '/request-shard-view/'
                     request = requests.get(url=URL, timeout=5).json()
