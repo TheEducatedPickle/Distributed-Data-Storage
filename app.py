@@ -64,6 +64,7 @@ def reshard():
     global REPLICAS
     global DICTIONARY
 
+    print('\n----- Resharding -----', file= sys.stderr)
     shardCount = request.get_json()['shard-count']
     if int(shardCount)*2 > len(REPLICAS):
         data = {"message": 'Not enough nodes to provide fault-tolerance with the given shard count!'}
@@ -76,7 +77,7 @@ def reshard():
         for node in shard:
             URL = 'http://' + node + '/request-dict/'
             try:
-                resp = requests.get(url=URL).json()
+                resp = requests.get(url=URL, timeout=5).json()
                 print(resp,file=sys.stderr)
                 tempDict = {**tempDict,**resp['kvs']}
             except requests.exceptions.ConnectionError:
@@ -111,12 +112,16 @@ def reshard():
     #Updating dictionaries
     DICTIONARY = {}
     for key,value in tempDict.items():
-        data={"value":value,"causal-metadata":""}
+        data={"value":value[0],
+            "version":value[1],
+            "causal-metadata":value[2]
+            }
         URL='http://'+SOCKET+'/key-value-store/' + key
-        requests.put(url=URL, data=data)
+        requests.put(url=URL, json=data)
 
     data = {"message":"Resharding done successfully"}
     response = app.response_class(response=json.dumps(data), status=200,mimetype='application/json')
+    print('\n----- Resharding Complete -----', file= sys.stderr)
     return response
 
 ###################### Shard Receiving ######################
@@ -559,7 +564,6 @@ def onStart():
                     print(repl, 'failed to respond to view put request', file=sys.stderr)
     
     if not SHARDS:
-        print('First online node, creating shards',file=sys.stderr)
         for i in range(1,SHARD_COUNT+1):
             SHARDS[i] = []
         for repl in REPLICAS:
