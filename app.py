@@ -22,49 +22,35 @@ versionlist = []
 @app.route('/key-value-store-shard/node-shard-id', methods=['GET'])
 def getNodeShardId():
     global current_shard
-    return app.response_class(
-        json={
-            "message":"Shard ID of the node retrieved successfully", 
-            "shard-id":current_shard
-        }, 
-        status=200
-    )
+    data={"message":"Shard ID of the node retrieved successfully", 
+        "shard-id":current_shard}
+    return app.response_class(response=json.dumps(data),status=200,mimetype='application/json')
 
 @app.route('/key-value-store-shard/shard-ids', methods=['GET'])
 def shardIds():
     global SHARDS
-    return app.response_class(
-        json={
-            "message":"Shard IDs retrieved successfully",
-            "shard-ids":",".join(SHARDS.keys())
-        },
-        status=200
-    )    
+    data = {"message":"Shard IDs retrieved successfully",
+            "shard-ids":",".join([str(x) for x in SHARDS.keys()])}
+    return app.response_class(response=json.dumps(data),status=200,mimetype='application/json')    
 
 @app.route('/key-value-store-shard/shard-id-members/<id>', methods=['GET'])
 def shardMembers(id):
     global SHARDS
-    return app.response_class(
-        json={
-            "message":"Members of shard ID retrieved successfully",
-            "shard-id-members":",".join(getNodesInShard(id))
-        },
-        status=200
-    )    
+    data = {"message":"Members of shard ID retrieved successfully",
+            "shard-id-members":",".join(getNodesInShard(int(id)))}
+    return app.response_class(response=json.dumps(data), status=200,mimetype='application/json')    
 
 @app.route('/key-value-store-shard/shard-id-key-count/<shardid>',methods = ['GET'])
 def keyCount(shardid):
-    return len(getNodesInShard(shardid))
+    data = {"message":"Key count of shard ID retrieved successfully",
+        "shard-id-key-count":len(getNodesInShard(int(shardid)))}
+    return app.response_class(response=json.dumps(data), status=200,mimetype='application/json')    
 
 @app.route('/key-value-store-shard/add-member/<socket>', methods = ['PUT'])
 def addNodeToShards(socket):
-    global current_shard
     global SHARDS
-    global SHARD_COUNT
-    global SOCKET
-    minindex = 0
-    minval = 0
-    
+    SHARDS[int(socket)].append(request.get_json()['socket-address'])
+    broadcastShardOverwrite()
 
 @app.route('/key-value-store-shard/reshard', methods=['PUT'])
 def reshard():
@@ -72,29 +58,28 @@ def reshard():
     global SHARDS
     global SHARD_COUNT
     global SOCKET
-    minindex = 0
-    minval = 0
+    global REPLICAS
     dict = request.get_json()
-    if dict['shard-count']*2 > len(REPLICAS):
+    if int(dict['shard-count'])*2 > len(REPLICAS):
         data = {"message": 'Not enough nodes to provide fault-tolerance with the given shard count!'}
         response = app.response_class(response=json.dumps(
             data), status=400, mimetype='application/json')
         return response
     else:
-        for repl in REPLICAS:
-            for i in range(1, SHARD_COUNT+1):
-                if len(SHARDS[i]) < 2:
-                    SHARDS[i].append(repl)
-                    if repl == SOCKET:
-                        current_shard = i
-                    return
-                else:
-                    if minval > len(SHARDS[i]):
-                        minindex = i
-                        minval = len(SHARDS[i])
-            SHARDS[i].append(repl)
-            if repl == SOCKET:
-                current_shard = i
+        SHARDS={}
+        SHARD_COUNT=dict['shard-count']
+        rIndex = 0
+        for i in range(1,dict['shard-count']+1):
+            SHARDS[i] = []
+            while len(SHARDS[i]) < 2:
+                SHARDS[i].append(REPLICAS[rIndex])
+                rIndex += 1
+        sIndex = 1
+        while rIndex < len(REPLICAS):
+            SHARDS[sIndex].append(REPLICAS[rIndex])
+            rIndex += 1
+            sIndex = (sIndex+1) % SHARD_COUNT
+
     for node in REPLICAS:
         URL = 'http://' + node + '/replace-shard-view/'
         try:
@@ -102,6 +87,7 @@ def reshard():
         except requests.exceptions.ConnectionError:
             delView(node)
     print('RESHARDED DICT:',SHARDS,file=sys.stderr)
+    broadcastShardOverwrite()
 
 ###################### Shard Broadcast Receiving ######################
 @app.route('/replace-shard-view/', methods=['PUT']) 
@@ -131,6 +117,16 @@ def putNodeInShard(socket):
     
 
 ###################### Shard Helper Functions ######################
+def broadcastShardOverwrite():
+    global SHARDS
+    data = {"shard-dict":SHARDS}
+    for node in REPLICAS:
+        try:
+            URL = 'http://' + node + '/replace-shard-view/'
+            requests.put(url=URL,data=json.dumps(data))
+        except requests.exceptions.ConnectionError:
+            delView(node)
+
 def getShardID(value):
     global SHARD_COUNT
     hash = hashlib.md5()
@@ -139,7 +135,26 @@ def getShardID(value):
 
 def getNodesInShard(id):
     global SHARDS
+    print(SHARDS, id, file=sys.stderr)
     return SHARDS[id]
+
+def addNodesBalanced(repl):
+    global current_shard
+    minindex = 0
+    minval = 0
+    for i in range(1, SHARD_COUNT+1):
+        if len(SHARDS[i]) < 2:
+            SHARDS[i].append(repl)
+            if repl == SOCKET:
+                current_shard = i
+            return
+        else:
+            if minval > len(SHARDS[i]):
+                minindex = i
+                minval = len(SHARDS[i])
+    SHARDS[i].append(repl)
+    if repl == SOCKET:
+        current_shard = i
 
 def removeNodeFromShards(socket):
     SHARDS[getShardID(socket)].remove(socket)
@@ -488,12 +503,6 @@ def list_to_string(_versionlist):
     liststr += str(_versionlist[-1])
     return liststr
 
-
-def alertShutdown():
-    global SOCKET
-    delView(SOCKET)
-
-
 def onStart():
     global REPLICAS
     global SOCKET
@@ -502,11 +511,8 @@ def onStart():
     global versionlist
     global current_shard
     if REPLICAS:
-        for i in range(1,SHARD_COUNT+1):
-            SHARDS[i] = []
         for repl in REPLICAS:
             if repl != SOCKET:
-                time.sleep(1)
                 try:
                     URL = 'http://' + repl + '/key-value-store-view/'
                     request = requests.put(
@@ -514,10 +520,22 @@ def onStart():
 
                     URL = 'http://' + repl + '/request-shard-view/'
                     request = requests.get(url=URL, timeout=5).json()
-                    DICTIONARY = request['shards']
+                    for shardId, nodes in request['shards'].items():
+                        SHARDS[int(shardId)] = nodes
                     break
                 except requests.exceptions.ConnectionError:
                     print(repl, 'failed to respond to view put request', file=sys.stderr)
+    
+    if not SHARDS:
+        print('First online node, creating shards',file=sys.stderr)
+        for i in range(1,SHARD_COUNT+1):
+            SHARDS[i] = []
+        for repl in REPLICAS:
+            addNodesBalanced(repl)
+    else:
+        for shardId, nodes in SHARDS.items():
+            if SOCKET in nodes:
+                current_shard = shardId
 
     for node in getNodesInShard(current_shard):
         try:
@@ -575,8 +593,8 @@ def get_curr_version():
     return vectorclock[SOCKET]
 
 def forward_request(key, shard_id):
+    global SHARDS
     nodes = getNodesInShard(shard_id)
-    print(nodes, file=sys.stderr)
     for repl in nodes:
         URL = 'http://' + repl + '/key-value-store/' + key
         print(URL, file=sys.stderr)

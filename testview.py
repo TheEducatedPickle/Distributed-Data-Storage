@@ -471,6 +471,9 @@ class TestHW3(unittest.TestCase):
         self.assertEqual(third_get_version, second_put_version)
         self.assertEqual(third_get_causal_metadata, second_put_causal_metadata)
 
+    #def test_e(self):
+    #    response = requests.get('http://localhost:8082/get')
+
 
 if __name__ == '__main__':
     unittest.main()
