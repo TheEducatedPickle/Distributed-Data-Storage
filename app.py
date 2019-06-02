@@ -77,6 +77,7 @@ def reshard():
         for node in shard:
             URL = 'http://' + node + '/request-dict/'
             try:
+                print('Requesting dict from',shard,file=sys.stderr)
                 resp = requests.get(url=URL, timeout=5).json()
                 tempDict = {**tempDict,**resp['kvs']}
             except requests.exceptions.ConnectionError:
@@ -108,7 +109,7 @@ def reshard():
     for key,value in tempDict.items():
         data={"value":value[0],
             "version":value[1],
-            "causal-metadata":value[2]
+            "causal-metadata":list_to_string(value[2])
             }
         URL='http://'+SOCKET+'/key-value-store/' + key
         requests.put(url=URL, json=data)
@@ -122,9 +123,12 @@ def reshard():
 @app.route('/replace-shard-view/', methods=['PUT']) 
 def replaceShardView():
     global SHARDS
+    global versionlist
     print('Received request to replace shard view with',request.get_json(),file=sys.stderr)
     SHARDS = {}
-    for key, val in request.get_json()['shard-dict'].items():
+    requestJson = request.get_json()
+    #versionlist = requestJson[versionlist]
+    for key, val in requestJson['shard-dict'].items():
         SHARDS[int(key)] = val
     return app.response_class(response=json.dumps(
             {'accepted':'true'}), status=200, mimetype='application/json')
@@ -156,12 +160,13 @@ def clearDict():
 def broadcastShardOverwrite():
     global SHARDS
     global SOCKET
+    global versionlist
     for node in REPLICAS:
         if node != SOCKET:
             try:
                 print('Updating',node,'with new shard view',file=sys.stderr)
                 URL = 'http://' + node + '/replace-shard-view/'
-                requests.put(url=URL,json={"shard-dict":SHARDS},timeout=5)
+                requests.put(url=URL,json={"shard-dict":SHARDS,"vl":versionlist},timeout=5)
                 URL = 'http://' + node + '/clear-dict/'
                 requests.delete(url=URL, timeout=5)
             except requests.exceptions.ConnectionError:
@@ -265,7 +270,6 @@ def putView():
         return response
     for repl in REPLICAS:
         URL = 'http://' + repl + '/view-broadcast-receive/'+socket
-        print('trying ', URL, file=sys.stderr)
         try:
             # print(url,file=sys.stderr)
             requests.put(url=URL)
@@ -277,7 +281,6 @@ def putView():
     response = app.response_class(response=json.dumps(
         data), status=200, mimetype='application/json')
     return response
-#######################################################################
 
 ###################### Receiving view broadcasts ######################
 @app.route('/view-broadcast-receive/<socket>', methods=['DELETE'])
@@ -379,7 +382,7 @@ def put(key):
             return response
         else:
             try:
-                holdThread(causal_meta)
+                checkCausality(causal_meta)
                 if key in DICTIONARY:
                     message = "Updated successfully"
                     status = 200
@@ -415,7 +418,7 @@ def delete(key):
         response = forward_request(key, shard_id)
         return response
     else:
-        holdThread(causal_meta)
+        checkCausality(causal_meta)
         if key in DICTIONARY:
             keyData = ["",versionlist[-1]+1,versionlist]  # individual key
             DICTIONARY[key] = keyData
@@ -435,15 +438,15 @@ def delete(key):
                 data), status=201, mimetype='application/json')
             return response
 
-def holdThread(causal_meta):
+def checkCausality(causal_meta):
     global versionlist
-    while list_to_string(versionlist) != causal_meta:
+    if list_to_string(versionlist) != causal_meta:
         time.sleep(0.5)
 
 
 ################## Key Value Store Broadcast Receving ##################
 @app.route('/kvs-broadcast-receive/<key>', methods=['GET'])
-def broadcastget(key):
+def broadcastReceiveGet(key):
     global DICTIONARY
     global versionlist
     response = ""
@@ -470,15 +473,15 @@ def broadcastget(key):
 
 
 @app.route('/kvs-broadcast-receive/<key>', methods=['PUT'])
-def broadcastput(key):
+def broadcastReceivePut(key):
     global DICTIONARY
     global versionlist
     response = ""
     value = get_value()
     causal_meta = get_causal_meta()
-
+    print('Received PUT request with JSON:',request.get_json(),file=sys.stderr)
+    print(list_to_string(versionlist) == causal_meta, file=sys.stderr)
     if causal_meta == "":
-
         keyData = [value,1,""]  # individual key
         DICTIONARY[key] = keyData
         versionlist.append(1)
@@ -488,8 +491,7 @@ def broadcastput(key):
             data), status=200, mimetype='application/json')
         return response
     else:
-        if list_to_string(versionlist) == causal_meta:
-
+        if versionlist and list_to_string(versionlist) == causal_meta:
             keyData = [value, versionlist[-1]+1,versionlist]  # individual key
             DICTIONARY[key] = keyData
             versionlist.append(versionlist[-1]+1)
@@ -499,7 +501,6 @@ def broadcastput(key):
             response = app.response_class(response=json.dumps(
                 data), status=200, mimetype='application/json')
             return response
-
         else:
             l = list_to_string(versionlist)
             data = {"error": " causal metadata not matching",
@@ -510,7 +511,7 @@ def broadcastput(key):
 
 
 @app.route('/kvs-broadcast-receive/<key>', methods=['PUT'])
-def broadcastdelete(key):
+def boradcastReceiveDelete(key):
     global DICTIONARY
     global versionlist
     response = ""
@@ -541,11 +542,7 @@ def ping():
     return Response("{'Live': 'True'}", status=200, mimetype='application/json')
 
 def list_to_string(_versionlist):
-    liststr = ""
-    for i in _versionlist[:-1]:
-        liststr += str(i) + ","
-    liststr += str(_versionlist[-1])
-    return liststr
+    return ",".join([str(x) for x in _versionlist])
 
 def onStart():
     global REPLICAS
