@@ -78,7 +78,6 @@ def reshard():
             URL = 'http://' + node + '/request-dict/'
             try:
                 resp = requests.get(url=URL, timeout=5).json()
-                print(resp,file=sys.stderr)
                 tempDict = {**tempDict,**resp['kvs']}
             except requests.exceptions.ConnectionError:
                 delView(node)
@@ -98,16 +97,11 @@ def reshard():
         SHARDS[sIndex].append(REPLICAS[rIndex])
         rIndex += 1
         sIndex = (sIndex+1) % SHARD_COUNT
+    print('Resharded Dict:',SHARDS,file=sys.stderr)
 
     #Updating shards with new view
-    for node in REPLICAS:
-        URL = 'http://' + node + '/replace-shard-view/'
-        try:
-            requests.put(url=URL, json={'shard-dict':SHARDS})
-        except requests.exceptions.ConnectionError:
-            delView(node)
-    print('RESHARDED DICT:',SHARDS,file=sys.stderr)
     broadcastShardOverwrite()
+    print('All nodes updated with resharded view', file=sys.stderr)
 
     #Updating dictionaries
     DICTIONARY = {}
@@ -128,8 +122,10 @@ def reshard():
 @app.route('/replace-shard-view/', methods=['PUT']) 
 def replaceShardView():
     global SHARDS
-    print(request.get_json(),file=sys.stderr)
-    SHARDS = request.get_json()['shard-dict']
+    print('Received request to replace shard view with',request.get_json(),file=sys.stderr)
+    SHARDS = {}
+    for key, val in request.get_json()['shard-dict'].items():
+        SHARDS[int(key)] = val
     return app.response_class(response=json.dumps(
             {'accepted':'true'}), status=200, mimetype='application/json')
 
@@ -149,6 +145,13 @@ def requestShardView():
         data), status=200, mimetype='application/json')
     return response    
 
+@app.route('/clear-dict/',methods=['DELETE'])
+def clearDict():
+    global DICTIONARY
+    DICTIONARY = {}
+    return app.response_class(response=json.dumps(
+        {"accepted":"true"}),status=200,mimetype='application/json')
+
 ###################### Shard Helper Functions ######################
 def broadcastShardOverwrite():
     global SHARDS
@@ -156,9 +159,13 @@ def broadcastShardOverwrite():
     for node in REPLICAS:
         if node != SOCKET:
             try:
+                print('Updating',node,'with new shard view',file=sys.stderr)
                 URL = 'http://' + node + '/replace-shard-view/'
                 requests.put(url=URL,json={"shard-dict":SHARDS},timeout=5)
+                URL = 'http://' + node + '/clear-dict/'
+                requests.delete(url=URL, timeout=5)
             except requests.exceptions.ConnectionError:
+                print(node,'failed to update shard view - deleting node',file=sys.stderr)
                 delView(node)
 
 def getShardID(value):
