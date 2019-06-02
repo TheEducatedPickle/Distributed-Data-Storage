@@ -6,7 +6,7 @@ import os
 import time
 import hashlib
 
-dictionary = {}
+DICTIONARY = {}
 
 REPLICAS = os.environ.get('VIEW').split(',')  
 SHARDS = {}     #Dict of shard # to list of nodes
@@ -58,36 +58,77 @@ def keyCount(shardid):
 
 @app.route('/key-value-store-shard/add-member/<socket>', methods = ['PUT'])
 def addNodeToShards(socket):
+    global current_shard
     global SHARDS
-    shard = getShardID(socket)
-    if shard not in SHARDS:
-        SHARDS[shard] = []
-    SHARDS[shard].append(socket)
+    global SHARD_COUNT
+    global SOCKET
+    minindex = 0
+    minval = 0
+    
 
 @app.route('/key-value-store-shard/reshard', methods=['PUT'])
 def reshard():
-    global REPLICAS
+    global current_shard
     global SHARDS
+    global SHARD_COUNT
+    global SOCKET
+    minindex = 0
+    minval = 0
     dict = request.get_json()
     if dict['shard-count']*2 > len(REPLICAS):
         data = {"message": 'Not enough nodes to provide fault-tolerance with the given shard count!'}
         response = app.response_class(response=json.dumps(
             data), status=400, mimetype='application/json')
+        return response
     else:
-        if dict['shard-count']==len(SHARDS):
-            fault_tolerant = []
-            non_fault_tolerant = []
-            for key,value in SHARDS:
-                if len(value) > 1:
-                    fault_tolerant.append(key)
+        for repl in REPLICAS:
+            for i in range(1, SHARD_COUNT+1):
+                if len(SHARDS[i]) < 2:
+                    SHARDS[i].append(repl)
+                    if repl == SOCKET:
+                        current_shard = i
+                    return
                 else:
-                    non_fault_tolerant.append(key)
-            
-            for 
+                    if minval > len(SHARDS[i]):
+                        minindex = i
+                        minval = len(SHARDS[i])
+            SHARDS[i].append(repl)
+            if repl == SOCKET:
+                current_shard = i
+    for node in REPLICAS:
+        URL = 'http://' + node + '/replace-shard-view/'
+        try:
+            requests.put(url=URL, json={'shard-dict':SHARDS})
+        except requests.exceptions.ConnectionError:
+            delView(node)
+    print('RESHARDED DICT:',SHARDS,file=sys.stderr)
 
+###################### Shard Broadcast Receiving ######################
+@app.route('/replace-shard-view/', methods=['PUT']) 
+def replaceShardView():
+    global SHARDS
+    SHARDS = request.get_json()['shard-dict']
 
-        
+@app.route('/request-kvs/', methods=['GET'])
+def requestKvs():
+    global DICTIONARY
+    data = {"kvs": DICTIONARY, "vl": versionlist}
+    response = app.response_class(response=json.dumps(
+        data), status=200, mimetype='application/json')
+    return response
 
+@app.route('/request-shard-view/',methods=['GET'])
+def requestShardView():
+    global SHARDS
+    data = {"shards": SHARDS}
+    response = app.response_class(response=json.dumps(
+        data), status=200, mimetype='application/json')
+    return response
+
+@app.route('/shard-broadcast-receive/',methods=['PUT'])
+def putNodeInShard(socket):
+    global SHARDS
+    
 
 ###################### Shard Helper Functions ######################
 def getShardID(value):
@@ -95,7 +136,6 @@ def getShardID(value):
     hash = hashlib.md5()
     hash.update(value.encode('utf-8'))
     return (int(hash.hexdigest(), 16)%SHARD_COUNT + 1)
-
 
 def getNodesInShard(id):
     global SHARDS
@@ -115,7 +155,7 @@ def getView():
         # time.sleep(2)
         URL = 'http://' + repl + '/ping/'
         try:
-            requests.get(url=URL, timeout=10)
+            requests.get(url=URL, timeout=5)
         except requests.exceptions.ConnectionError:
             REPLICAS.remove(repl)
             delView(repl)
@@ -156,20 +196,17 @@ def delView(socket=None):
 def putView():
     global REPLICAS
     global SOCKET
-    global dictionary
+    global DICTIONARY
     socket = request.get_json()
     socket = socket['socket-address']
     if socket in REPLICAS:
-        print('socket is ', socket, file=sys.stderr)
-        print('SOcket exists', file=sys.stderr)
         data = {"error": "Socket address already exists in the view",
-                "message": "Error in PUT", "dict": dictionary, "vl": versionlist}
+                "message": "Error in PUT", "dict": DICTIONARY, "vl": versionlist}
         response = app.response_class(response=json.dumps(
             data), status=404, mimetype='application/json')
         return response
     for repl in REPLICAS:
         URL = 'http://' + repl + '/view-broadcast-receive/'+socket
-        print('trying ', URL, file=sys.stderr)
         try:
             # print(url,file=sys.stderr)
             requests.put(url=URL)
@@ -178,7 +215,7 @@ def putView():
             print(repl, 'is dead', file=sys.stderr)
     
     data = {"message": "Replica added successfully to the view",
-            "dict": dictionary, "vl": versionlist}
+            "dict": DICTIONARY, "vl": versionlist}
     response = app.response_class(response=json.dumps(
         data), status=200, mimetype='application/json')
     return response
@@ -189,7 +226,6 @@ def putView():
 def delSelfView(socket):
     global REPLICAS
     global SHARDS
-    print('Deleting', socket, file=sys.stderr)
     if socket not in REPLICAS:
         data = {"error": "Socket address does not exist in the view",
                 "message": "Error in DELETE"}
@@ -198,7 +234,6 @@ def delSelfView(socket):
         return response
     
     REPLICAS.remove(socket)
-    removeNodeFromShards(socket)
 
     #Returning Response
     data = {"message": "Replica deleted successfully from the view"}
@@ -211,7 +246,6 @@ def delSelfView(socket):
 @app.route('/view-broadcast-receive/<socket>', methods=['PUT'])
 def putSelfView(socket):
     global REPLICAS
-    print('PUTTING', socket, file=sys.stderr)
     if socket in REPLICAS:
         data = {"error": "Socket address already exists in the view",
                 "message": "Error in PUT"}
@@ -220,7 +254,6 @@ def putSelfView(socket):
         return response
 
     REPLICAS.append(socket)
-    addNodeToShards(socket)
 
     data = {"message": "Replica successfully added to view"}
     response = app.response_class(response=json.dumps(
@@ -231,21 +264,19 @@ def putSelfView(socket):
 
 @app.route('/key-value-store/<key>', methods=['GET'])
 def get(key):
-    global dictionary
+    global DICTIONARY
     global versionlist
     response = ""
     shard_id = getShardID(key)  #determines the shard-id of key
-    print(shard_id, file=sys.stderr)
-    print(current_shard, file=sys.stderr)
     if shard_id != current_shard:                   #not current node's shard-id
         response = forward_request(key, shard_id)
         return response
     else:
-        if key not in dictionary:
+        if key not in DICTIONARY:
             response = broadcast_request(key, shard_id)
             return response
         else:
-            keyData = dictionary[key]
+            keyData = DICTIONARY[key]
             if isinstance(keyData[2], list):
                 causal_meta = list_to_string(keyData[2])
             else:
@@ -261,15 +292,13 @@ def get(key):
 
 @app.route('/key-value-store/<key>', methods=['PUT'])
 def put(key):
-    global dictionary
+    global DICTIONARY
     global versionlist
     global REPLICAS
     response = ""
     value = get_value()
     causal_meta = get_causal_meta()
     shard_id = getShardID(key)  #determines the shard-id of key
-    print(shard_id, file=sys.stderr)
-    print(current_shard, file=sys.stderr)
     if shard_id != current_shard:                   #not current node's shard-id
         response = forward_request(key, shard_id)
         return response
@@ -280,7 +309,7 @@ def put(key):
         # (empty in this case)
         if causal_meta == "": #If you are putting the first message
             keyData = [value,1,""]  # individual key
-            dictionary[key] = keyData
+            DICTIONARY[key] = keyData
 
             broadcast_request(key, shard_id)
             versionlist.append(1)
@@ -292,7 +321,7 @@ def put(key):
         else:
             try:
                 holdThread(causal_meta)
-                if key in dictionary:
+                if key in DICTIONARY:
                     message = "Updated successfully"
                     status = 200
                 else:
@@ -300,7 +329,7 @@ def put(key):
                     status = 201
 
                 keyData = [value, versionlist[-1]+1,versionlist]  # individual key
-                dictionary[key] = keyData
+                DICTIONARY[key] = keyData
                 versionlist.append(versionlist[-1]+1)
 
                 broadcast_request(key, shard_id)
@@ -311,13 +340,13 @@ def put(key):
                     data), status=status, mimetype='application/json')
                 return response
             except:
-                while not dictionary:
+                while not DICTIONARY:
                     onStart()
                 return put(key)
 
 @app.route('/key-value-store/<key>', methods=['DELETE'])
 def delete(key):
-    global dictionary
+    global DICTIONARY
     global versionlist
     global current_shard
     response = ""
@@ -328,9 +357,9 @@ def delete(key):
         return response
     else:
         holdThread(causal_meta)
-        if key in dictionary:
+        if key in DICTIONARY:
             keyData = ["",versionlist[-1]+1,versionlist]  # individual key
-            dictionary[key] = keyData
+            DICTIONARY[key] = keyData
             versionlist.append(versionlist[-1]+1)
 
             broadcast_request(key, shard_id)
@@ -352,13 +381,14 @@ def holdThread(causal_meta):
     while list_to_string(versionlist) != causal_meta:
         time.sleep(0.5)
 
+
 ################## Key Value Store Broadcast Receving ##################
 @app.route('/kvs-broadcast-receive/<key>', methods=['GET'])
 def broadcastget(key):
-    global dictionary
+    global DICTIONARY
     global versionlist
     response = ""
-    if key not in dictionary:
+    if key not in DICTIONARY:
         data = {"doesExist": False, "error": "Key does not exist",
                 "message": "Error in GET"}
         response = app.response_class(response=json.dumps(
@@ -366,7 +396,7 @@ def broadcastget(key):
         return response
 
     else:
-        keyData = dictionary[key]
+        keyData = DICTIONARY[key]
         if isinstance(keyData[2], list):
             causal_meta = list_to_string(keyData[2])
         else:
@@ -382,7 +412,7 @@ def broadcastget(key):
 
 @app.route('/kvs-broadcast-receive/<key>', methods=['PUT'])
 def broadcastput(key):
-    global dictionary
+    global DICTIONARY
     global versionlist
     response = ""
     value = get_value()
@@ -391,7 +421,7 @@ def broadcastput(key):
     if causal_meta == "":
 
         keyData = [value,1,""]  # individual key
-        dictionary[key] = keyData
+        DICTIONARY[key] = keyData
         versionlist.append(1)
 
         data = {"message": "Replicated successfully", "version": "1"}
@@ -402,7 +432,7 @@ def broadcastput(key):
         if list_to_string(versionlist) == causal_meta:
 
             keyData = [value, versionlist[-1]+1,versionlist]  # individual key
-            dictionary[key] = keyData
+            DICTIONARY[key] = keyData
             versionlist.append(versionlist[-1]+1)
 
             data = {"message": "Replicated successfully",
@@ -422,15 +452,15 @@ def broadcastput(key):
 
 @app.route('/kvs-broadcast-receive/<key>', methods=['PUT'])
 def broadcastdelete(key):
-    global dictionary
+    global DICTIONARY
     global versionlist
     response = ""
     causal_meta = get_causal_meta()
 
     if list_to_string(versionlist) == causal_meta:
-        if key in dictionary:
+        if key in DICTIONARY:
             keyData = ["",versionlist[-1]+1,versionlist]  # individual key
-            dictionary[key] = keyData
+            DICTIONARY[key] = keyData
             versionlist.append(versionlist[-1]+1)
             data = {"message": "Deleted successfully", "version": str(
                 versionlist[-1]), "causal-metadata": list_to_string(versionlist)}
@@ -467,32 +497,44 @@ def alertShutdown():
 def onStart():
     global REPLICAS
     global SOCKET
-    global dictionary
+    global SHARDS
+    global DICTIONARY
     global versionlist
     global current_shard
     if REPLICAS:
-        for repl in REPLICAS:
-            addNodeToShards(repl)
+        for i in range(1,SHARD_COUNT+1):
+            SHARDS[i] = []
         for repl in REPLICAS:
             if repl != SOCKET:
                 time.sleep(1)
                 try:
                     URL = 'http://' + repl + '/key-value-store-view/'
-                    print("TRYING URL ", URL, file=sys.stderr)
                     request = requests.put(
-                        url=URL, json={'socket-address': SOCKET}, timeout=10)
-                    print(request, file=sys.stderr)
-                    if request.json()['dict']:
-                        dictionary = request.json()['dict']
-                    if request.json()['vl']:
-                        versionlist = request.json()['vl']
-                        print(versionlist, file=sys.stderr)
+                        url=URL, json={'socket-address': SOCKET}, timeout=5)
 
+                    URL = 'http://' + repl + '/request-shard-view/'
+                    request = requests.get(url=URL, timeout=5).json()
+                    DICTIONARY = request['shards']
                     break
                 except requests.exceptions.ConnectionError:
-                    print(repl, 'failed', file=sys.stderr)
-    current_shard = getShardID(SOCKET)
+                    print(repl, 'failed to respond to view put request', file=sys.stderr)
+
+    for node in getNodesInShard(current_shard):
+        try:
+            URL = 'http://' + node + '/request-kvs/'
+            request = requests.get(url=URL, timeout=5).json()
+            DICTIONARY = request['kvs']
+            versionlist = request['vl']
+            break
+        except requests.exceptions.ConnectionError:
+            print(node,'failed to respond to kvs request',file=sys.stderr)
+
+    print('-------------------------------------',file=sys.stderr)
+    print('--- Container Started ---',file=sys.stderr)
     print('Current Shard:', current_shard,file=sys.stderr)
+    print('Shard Mapping:',SHARDS, file=sys.stderr)
+    print('Dictionary:', DICTIONARY, file=sys.stderr)
+    print('-------------------------------------\n',file=sys.stderr)
 
 def get_ip(address):
     return address.split(":")[0]
@@ -545,7 +587,7 @@ def forward_request(key, shard_id):
                 headers={key: value for (key, value)
                 in request.headers if key != 'Host'},
                 data=request.get_data(),
-                timeout=10,
+                timeout=5,
                 allow_redirects=False)
 
             excluded_headers = ['content-encoding',
@@ -575,7 +617,7 @@ def broadcast_request(key, shard_id):
                     headers={key: value for (key, value)
                              in request.headers if key != 'Host'},
                     data=request.get_data(),
-                    timeout=10,
+                    timeout=5,
                     allow_redirects=False)
 
                 excluded_headers = ['content-encoding',
