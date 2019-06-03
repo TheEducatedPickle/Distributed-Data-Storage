@@ -102,6 +102,7 @@ def reshard():
 
     #Updating shards with new view
     broadcastShardOverwrite()
+    broadcastClearDict()
     print('All nodes updated with resharded view', file=sys.stderr)
 
     #Updating dictionaries
@@ -167,6 +168,18 @@ def broadcastShardOverwrite():
                 print('Updating',node,'with new shard view',file=sys.stderr)
                 URL = 'http://' + node + '/replace-shard-view/'
                 requests.put(url=URL,json={"shard-dict":SHARDS,"vl":versionlist},timeout=5)
+            except requests.exceptions.ConnectionError:
+                print(node,'failed to update shard view - deleting node',file=sys.stderr)
+                delView(node)
+
+def broadcastClearDict():
+    global SHARDS
+    global SOCKET
+    global versionlist
+    for node in REPLICAS:
+        if node != SOCKET:
+            try:
+                print('Clearing',node,'dict',file=sys.stderr)
                 URL = 'http://' + node + '/clear-dict/'
                 requests.delete(url=URL, timeout=5)
             except requests.exceptions.ConnectionError:
