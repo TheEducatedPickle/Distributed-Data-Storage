@@ -109,8 +109,8 @@ def reshard():
     DICTIONARY = {}
     for key,value in tempDict.items():
         data={"value":value[0],
-            "version":value[1],
-            "causal-metadata":list_to_string(value[2])
+            "version":1,
+            "causal-metadata":""
             }
         URL='http://'+SOCKET+'/key-value-store/' + key
         requests.put(url=URL, json=data)
@@ -154,6 +154,7 @@ def requestShardView():
 def clearDict():
     global DICTIONARY
     DICTIONARY = {}
+    versionlist = []
     return app.response_class(response=json.dumps(
         {"accepted":"true"}),status=200,mimetype='application/json')
 
