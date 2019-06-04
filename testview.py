@@ -2,6 +2,7 @@ import unittest
 import requests
 import time
 import os
+import hashlib
 
 ######################## initialize variables ################################################
 subnetName = "assignment3-net"
@@ -19,13 +20,22 @@ replica3Ip = "10.10.0.4"
 replica3HostPort = "8084"
 replica3SocketAddress = replica3Ip + ":8080"
 
-view = replica1SocketAddress + "," + replica2SocketAddress + "," + replica3SocketAddress
+replica4Ip = "10.10.0.5"
+replica4HostPort = "8085"
+replica4SocketAddress = replica4Ip + ":8080"
 
+replica5Ip = "10.10.0.6"
+replica5HostPort = "8086"
+replica5SocketAddress = replica5Ip + ":8080"
+
+view = replica1SocketAddress + "," + replica2SocketAddress + "," + replica3SocketAddress + "," + replica4SocketAddress + "," + replica5SocketAddress
+SHARD_COUNT = 2
 
 A = False
 B = False
 C = False
-D = True
+D = False
+E = True
 ############################### Docker Linux Commands ###########################################################
 def removeSubnet(subnetName):
     command = "docker network rm " + subnetName
@@ -44,7 +54,7 @@ def buildDockerImage():
 def runReplica(hostPort, ipAddress, subnetName, instanceName):
     command = "docker run -d -p " + hostPort + ":8080 --net=" + subnetName + " --ip=" + ipAddress + " --name=" + instanceName + " -e SOCKET_ADDRESS=" + ipAddress + ":8080" + " -e VIEW=" + view + " -e SHARD_COUNT=2 assignment3-img"
     os.system(command)
-    time.sleep(20)
+    time.sleep(5)
 
 def stopAndRemoveInstance(instanceName):
     stopCommand = "docker stop " + instanceName
@@ -471,8 +481,69 @@ class TestHW3(unittest.TestCase):
         self.assertEqual(third_get_version, second_put_version)
         self.assertEqual(third_get_causal_metadata, second_put_causal_metadata)
 
-    #def test_e(self):
-    #    response = requests.get('http://localhost:8082/get')
+    def test_e(self):
+        if not E:
+            return
+        #stop and remove containers from possible previous runs
+        print("\n###################### Stopping and removing containers from previous run ######################\n")
+        stopAndRemoveInstance("replica1")
+        stopAndRemoveInstance("replica2")
+        stopAndRemoveInstance("replica3")
+        stopAndRemoveInstance("replica4")
+        stopAndRemoveInstance("replica5")
+
+        #run instances
+        print("\n###################### Running replicas ######################\n")
+        runReplica(replica1HostPort, replica1Ip, subnetName, "replica1")
+        runReplica(replica2HostPort, replica2Ip, subnetName, "replica2")
+        runReplica(replica3HostPort, replica3Ip, subnetName, "replica3")
+        runReplica(replica4HostPort, replica4Ip, subnetName, "replica4")
+        runReplica(replica5HostPort, replica5Ip, subnetName, "replica5")
+
+        print("\n###################### Putting k1/foo to the store ######################\n")
+
+        # put a new key in the store
+        response = requests.put('http://localhost:8082/key-value-store/k1', json={"value": "foo", "causal-metadata": ""})
+        responseInJson = response.json()
+
+        first_put_version = responseInJson["version"]
+        first_put_causal_metadata = responseInJson['causal-metadata']
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(first_put_version, first_put_causal_metadata)
+
+        print("\n################## Checking if k1 is in the correct Shard #############\n")
+
+        hash = hashlib.md5()
+        hash.update("k1".encode('utf-8'))
+        hash = (int(hash.hexdigest(), 16)%SHARD_COUNT + 1)
+        print(hash)
+        response = requests.get('http://localhost:8082/key-value-store-shard/shard-id-members/'+str(hash))
+        responseInJson = response.json()
+        print(responseInJson)
+        nodes = responseInJson['shard-id-members'].split(",")
+
+        response = requests.get('http://localhost:8082/key-value-store-shard/node-shard-id')
+        responseInJson = response.json()
+        self.assertEqual(hash,responseInJson['shard-id'])
+
+        response = requests.get('http://localhost:8082/request-dict/')
+        responseInJson = response.json()
+        print(responseInJson)
+
+        response = requests.get('http://localhost:8084/request-dict/')
+        responseInJson = response.json()
+        print(responseInJson)
+
+        print("\n###################### Stopping and removing replica3 ######################\n")
+        stopAndRemoveInstance("replica3")
+
+        response = requests.put('http://localhost:8082/key-value-store-shard/reshard',json = {'shard-count':"2"})
+        response = requests.get('http://localhost:8085/key-value-store-shard/shard-id-members/2')
+        responseInJson = response.json()
+        print(responseInJson)
+
+        
+     
 
 
 if __name__ == '__main__':

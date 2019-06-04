@@ -64,7 +64,18 @@ def reshard():
     global REPLICAS
     global DICTIONARY
 
+
     print('\n----- Resharding -----', file= sys.stderr)
+
+    for repl in REPLICAS:  # verify liveness
+        # time.sleep(2)
+        URL = 'http://' + repl + '/ping/'
+        try:
+            requests.get(url=URL, timeout=5)
+        except requests.exceptions.ConnectionError:
+            REPLICAS.remove(repl)
+            delView(repl)
+
     shardCount = request.get_json()['shard-count']
     if int(shardCount)*2 > len(REPLICAS):
         data = {"message": 'Not enough nodes to provide fault-tolerance with the given shard count!'}
@@ -109,8 +120,8 @@ def reshard():
     DICTIONARY = {}
     for key,value in tempDict.items():
         data={"value":value[0],
-            "version":1,
-            "causal-metadata":""
+            "version":value[1],
+            "causal-metadata":list_to_string(value[2])
             }
         URL='http://'+SOCKET+'/key-value-store/' + key
         requests.put(url=URL, json=data)
@@ -154,7 +165,6 @@ def requestShardView():
 def clearDict():
     global DICTIONARY
     DICTIONARY = {}
-    versionlist = []
     return app.response_class(response=json.dumps(
         {"accepted":"true"}),status=200,mimetype='application/json')
 
@@ -217,9 +227,10 @@ def addNodesBalanced(repl):
         current_shard = i
 
 def removeNodeFromShards(socket):
+    global SHARDS
     for shard in SHARDS.values():
         if socket in shard:
-            shard.remove(socket)
+            SHARDS[shard].remove(socket)
         return
 
 ###################### View Operations ######################
