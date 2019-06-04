@@ -76,7 +76,7 @@ def reshard():
             REPLICAS.remove(repl)
             delView(repl)
 
-    shardCount = request.get_json()['shard-count']
+    shardCount = int(request.get_json()['shard-count'])
     if int(shardCount)*2 > len(REPLICAS):
         data = {"message": 'Not enough nodes to provide fault-tolerance with the given shard count!'}
         response = app.response_class(response=json.dumps(
