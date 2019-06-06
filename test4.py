@@ -18,21 +18,14 @@ view = view[:-1]
 
 shardCount = 2
 A = True
-<<<<<<< HEAD
 B = True
 C = True
 D = True
 E = True
-=======
-B = False
-C = False
-D = False
-E = False
->>>>>>> 15d5ca326340ce979130db6345eeb6bdca7eb5cc
-F = False
-G = False
-H = False
-I = False
+F = True
+G = True
+H = True
+I = True
 ############################### Docker Linux Commands ###########################################################
 def removeSubnet(subnetName):
     command = "docker network rm " + subnetName
@@ -76,10 +69,6 @@ def disconnectFromNetwork(subnetName, instanceName):
 ################################# Unit Test Class ############################################################
 
 class TestHW3(unittest.TestCase):
-<<<<<<< HEAD
-  
-=======
->>>>>>> 15d5ca326340ce979130db6345eeb6bdca7eb5cc
     shardIdList = []
     shardsMemberList = []
     keyCount = 1200

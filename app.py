@@ -6,7 +6,7 @@ import os
 import time
 import hashlib
 
-DICTIONARY = {}
+DICTIONARY = None
 
 REPLICAS = os.environ.get('VIEW').split(',')  
 SHARDS = {}     #Dict of shard # to list of nodes
@@ -54,6 +54,8 @@ def addNodeToShards(socket):
     global SHARDS
     SHARDS[int(socket)].append(request.get_json()['socket-address'])
     broadcastShardOverwrite()
+    data = {"assigned-id":socket}
+    return app.response_class(response=json.dumps(data), status=200,mimetype='application/json')    
 
 @app.route('/key-value-store-shard/reshard', methods=['PUT'])
 def reshard():
@@ -88,7 +90,7 @@ def reshard():
         for node in shard:
             URL = 'http://' + node + '/request-dict/'
             try:
-                print('Requesting dict from',shard,file=sys.stderr)
+                print('Requesting dict from',node,file=sys.stderr)
                 resp = requests.get(url=URL, timeout=5).json()
                 tempDict = {**tempDict,**resp['kvs']}
             except requests.exceptions.ConnectionError:
@@ -97,6 +99,8 @@ def reshard():
 
     SHARDS={}
     SHARD_COUNT=shardCount
+    print('Shard Count:',SHARD_COUNT,file=sys.stderr)
+
     #Resharding
     rIndex = 0
     for i in range(1,shardCount+1):
@@ -108,7 +112,7 @@ def reshard():
     while rIndex < len(REPLICAS):
         SHARDS[sIndex].append(REPLICAS[rIndex])
         rIndex += 1
-        sIndex = (sIndex+1) % SHARD_COUNT
+        sIndex = max((sIndex+1) % (SHARD_COUNT+1),1)
     print('Resharded Dict:',SHARDS,file=sys.stderr)
 
     #Updating shards with new view
@@ -135,13 +139,20 @@ def reshard():
 @app.route('/replace-shard-view/', methods=['PUT']) 
 def replaceShardView():
     global SHARDS
+    global SOCKET
+    global SHARD_COUNT
+    global current_shard
     global versionlist
     print('Received request to replace shard view with',request.get_json(),file=sys.stderr)
     SHARDS = {}
     requestJson = request.get_json()
+    SHARD_COUNT = int(requestJson['shard-count'])
     #versionlist = requestJson[versionlist]
     for key, val in requestJson['shard-dict'].items():
         SHARDS[int(key)] = val
+        for node in val:
+            if node == SOCKET:
+                current_shard = int(key)
     return app.response_class(response=json.dumps(
             {'accepted':'true'}), status=200, mimetype='application/json')
 
@@ -172,13 +183,14 @@ def clearDict():
 def broadcastShardOverwrite():
     global SHARDS
     global SOCKET
+    global SHARD_COUNT
     global versionlist
     for node in REPLICAS:
         if node != SOCKET:
             try:
                 print('Updating',node,'with new shard view',file=sys.stderr)
                 URL = 'http://' + node + '/replace-shard-view/'
-                requests.put(url=URL,json={"shard-dict":SHARDS,"vl":versionlist},timeout=5)
+                requests.put(url=URL,json={"shard-dict":SHARDS,"vl":versionlist,"shard-count":SHARD_COUNT},timeout=5)
             except requests.exceptions.ConnectionError:
                 print(node,'failed to update shard view - deleting node',file=sys.stderr)
                 delView(node)
@@ -353,6 +365,7 @@ def putSelfView(socket):
 def get(key):
     global DICTIONARY
     global versionlist
+    global current_shard
     response = ""
     shard_id = getShardID(key)  #determines the shard-id of key
     if shard_id != current_shard:                   #not current node's shard-id
@@ -382,11 +395,14 @@ def put(key):
     global DICTIONARY
     global versionlist
     global REPLICAS
+    global SHARD_COUNT
+    global current_shard
     response = ""
     value = get_value()
     causal_meta = get_causal_meta()
     shard_id = getShardID(key)  #determines the shard-id of key
-    if shard_id != current_shard:                   #not current node's shard-id
+    if shard_id != current_shard:         #not current node's shard-id
+        print(shard_id,'does not match the current shard of this node,',current_shard,'with shard_count',SHARD_COUNT)
         response = forward_request(key, shard_id)
         return response
     else:
@@ -406,30 +422,25 @@ def put(key):
                 data), status=201, mimetype='application/json')
             return response
         else:
-            try:
-                checkCausality(causal_meta)
-                if key in DICTIONARY:
-                    message = "Updated successfully"
-                    status = 200
-                else:
-                    message = "Added successfully"
-                    status = 201
+            checkCausality(causal_meta)
+            if key in DICTIONARY:
+                message = "Updated successfully"
+                status = 200
+            else:
+                message = "Added successfully"
+                status = 201
 
-                keyData = [value, versionlist[-1]+1,versionlist]  # individual key
-                DICTIONARY[key] = keyData
-                versionlist.append(versionlist[-1]+1)
+            keyData = [value, versionlist[-1]+1,versionlist]  # individual key
+            DICTIONARY[key] = keyData
+            versionlist.append(versionlist[-1]+1)
 
-                broadcast_request(key, shard_id)
+            broadcast_request(key, shard_id)
 
-                data = {"message": message, "version": str(
-                    versionlist[-1]), "causal-metadata": list_to_string(versionlist), "shard-id": str(shard_id)}
-                response = app.response_class(response=json.dumps(
-                    data), status=status, mimetype='application/json')
-                return response
-            except:
-                while not DICTIONARY:
-                    onStart()
-                return put(key)
+            data = {"message": message, "version": str(
+                versionlist[-1]), "causal-metadata": list_to_string(versionlist), "shard-id": str(shard_id)}
+            response = app.response_class(response=json.dumps(
+                data), status=status, mimetype='application/json')
+            return response
 
 @app.route('/key-value-store/<key>', methods=['DELETE'])
 def delete(key):
@@ -505,7 +516,6 @@ def broadcastReceivePut(key):
     value = get_value()
     causal_meta = get_causal_meta()
     print('Received PUT request with JSON:',request.get_json(),file=sys.stderr)
-    print(list_to_string(versionlist) == causal_meta, file=sys.stderr)
     if causal_meta == "":
         keyData = [value,1,""]  # individual key
         DICTIONARY[key] = keyData
@@ -592,15 +602,21 @@ def onStart():
                 except requests.exceptions.ConnectionError:
                     print(repl, 'failed to respond to view put request', file=sys.stderr)
     
-    if not SHARDS:
+    if not SHARDS and SOCKET:
+        rIndex = 0
         for i in range(1,SHARD_COUNT+1):
             SHARDS[i] = []
-        for repl in REPLICAS:
-            addNodesBalanced(repl)
-    else:
-        for shardId, nodes in SHARDS.items():
-            if SOCKET in nodes:
-                current_shard = shardId
+            while len(SHARDS[i]) < 2:
+                SHARDS[i].append(REPLICAS[rIndex])
+                rIndex += 1
+        sIndex = 1
+        while rIndex < len(REPLICAS):
+            SHARDS[sIndex].append(REPLICAS[rIndex])
+            rIndex += 1
+            sIndex = max((sIndex+1) % (SHARD_COUNT+1),1)
+    for shardId, nodes in SHARDS.items():
+        if SOCKET in nodes:
+            current_shard = shardId
 
     for node in getNodesInShard(current_shard):
         try:
@@ -611,6 +627,9 @@ def onStart():
             break
         except requests.exceptions.ConnectionError:
             print(node,'failed to respond to kvs request',file=sys.stderr)
+    
+    if DICTIONARY == None:
+        DICTIONARY = {}
 
     print('-------------------------------------',file=sys.stderr)
     print('--- Container Started ---',file=sys.stderr)
@@ -662,7 +681,7 @@ def forward_request(key, shard_id):
     nodes = getNodesInShard(shard_id)
     for repl in nodes:
         URL = 'http://' + repl + '/key-value-store/' + key
-        print(URL, file=sys.stderr)
+        print('Forwarding', request.method, 'for key',key,'to',repl)
         try:
             resp = requests.request(
                 method=request.method,
@@ -691,8 +710,8 @@ def broadcast_request(key, shard_id):
     print(nodes, file=sys.stderr)
     for repl in nodes:
         if repl != SOCKET:
+            print('Broadcasting', request.method, 'for key',key,'to',repl)
             URL = 'http://' + repl + '/kvs-broadcast-receive/' + key
-            print(URL, file=sys.stderr)
             try:
                 resp = requests.request(
                     method=request.method,
