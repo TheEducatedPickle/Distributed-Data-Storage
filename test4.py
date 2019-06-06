@@ -71,7 +71,7 @@ def disconnectFromNetwork(subnetName, instanceName):
 class TestHW3(unittest.TestCase):
     shardIdList = []
     shardsMemberList = []
-    keyCount = 10
+    keyCount = 1200
     if True:
         ######################## Build docker image and create subnet ################################
         print("###################### Building Docker Image ######################\n")
@@ -113,6 +113,8 @@ class TestHW3(unittest.TestCase):
         if not A:
             return
         time.sleep(10)
+
+       
 
         print("\n###################### Getting Shard IDs ######################\n")
 
@@ -247,8 +249,12 @@ class TestHW3(unittest.TestCase):
         time.sleep(10)
 
         print("\n###################### Getting keys/values from the store ######################\n")
-
-
+        """
+        for port in nodeHostPortList:
+            URL = 'http://localhost:' + port + '/request-dict/'
+            response = requests.get(url=URL)
+            print(response.json())
+        """
         for counter in range(self.keyCount):
 
             nodeIndex = (counter + 1 ) % len(nodeIpList)

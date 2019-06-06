@@ -45,8 +45,19 @@ def shardMembers(id):
 
 @app.route('/key-value-store-shard/shard-id-key-count/<shardid>',methods = ['GET'])
 def keyCount(shardid):
+    global SHARDS
+    total = 0 
+    shardid = int(shardid)
+    node = SHARDS[shardid][0]
+    print(SHARDS[shardid],file = sys.stderr)
+
+    URL = 'http://' + node + '/request-dict/'
+    response = requests.get(url=URL)
+    responseInJson = response.json()
+    total = total + len(responseInJson['kvs'])
+    print(responseInJson['kvs'],file = sys.stderr)
     data = {"message":"Key count of shard ID retrieved successfully",
-        "shard-id-key-count":len(getNodesInShard(int(shardid)))}
+        "shard-id-key-count":total}
     return app.response_class(response=json.dumps(data), status=200,mimetype='application/json')    
 
 @app.route('/key-value-store-shard/add-member/<shard>', methods = ['PUT'])
@@ -183,6 +194,26 @@ def clearDict():
     DICTIONARY = {}
     return app.response_class(response=json.dumps(
         {"accepted":"true"}),status=200,mimetype='application/json')
+
+@app.route('/update-vl/',methods = ['PUT'])
+def setVl():
+    global versionlist
+    responseInJson = request.get_json()
+    versionlist = responseInJson['version-list']
+    return app.response_class(response=json.dumps(
+        {"message":"version list set"}),status=200,mimetype='application/json')
+    
+def updateAllVl():
+    global current_shard
+    global SHARDS
+    global versionlist
+    for i in SHARDS:
+        if i != current_shard:
+            for node in SHARDS[i]:
+                URL = 'http://' + node + '/update-vl'
+                response = requests.put(url=URL,json = {'version-list':versionlist})
+
+
 
 ###################### Shard Helper Functions ######################
 def broadcastShardOverwrite():
@@ -421,6 +452,7 @@ def put(key):
 
             broadcast_request(key, shard_id)
             versionlist.append(1)
+            updateAllVl()
             data = {"message": "Added successfully",
                 "version": "1", "causal-metadata": "1", "shard-id": str(shard_id)}
             response = app.response_class(response=json.dumps(
@@ -438,7 +470,7 @@ def put(key):
             keyData = [value, versionlist[-1]+1,versionlist]  # individual key
             DICTIONARY[key] = keyData
             versionlist.append(versionlist[-1]+1)
-
+            updateAllVl()
             broadcast_request(key, shard_id)
 
             data = {"message": message, "version": str(
