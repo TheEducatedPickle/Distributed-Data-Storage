@@ -308,7 +308,7 @@ class TestHW3(unittest.TestCase):
         self.assertEqual(first_get_version, put_version)
         self.assertEqual(first_get_causal_metadata, put_causal_metadata)
 
-        time.sleep(10)
+        #time.sleep(10)
 
         print("\n###################### Getting mykey1 from replica2 ######################\n")
 
@@ -363,7 +363,7 @@ class TestHW3(unittest.TestCase):
         self.assertEqual(first_get_version, put_version)
         self.assertEqual(first_get_causal_metadata, put_causal_metadata)
 
-        time.sleep(10)
+        #time.sleep(10)
 
         print("\n###################### Getting mykey1 from replica2 ######################\n")
 
@@ -411,7 +411,7 @@ class TestHW3(unittest.TestCase):
         
         print("\n###################### Disconnecting replica2 from the network ######################\n")
         disconnectFromNetwork(subnetName, "replica2")
-        time.sleep(0.5)
+        #time.sleep(0.5)
 
         print("\n###################### Putting k1/foo to the store ######################\n")
 
@@ -437,7 +437,7 @@ class TestHW3(unittest.TestCase):
         second_put_causal_metadata = responseInJson['causal-metadata']
         self.assertEqual(response.status_code, 200)
 
-        time.sleep(20)
+        #time.sleep(20)
 
         print("\n###################### Getting k1 from replica1 ######################\n")
 
