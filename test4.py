@@ -17,7 +17,15 @@ for nodeSocketAddress in nodeSocketAddressList:
 view = view[:-1]
 
 shardCount = 2
-
+A = True
+B = True
+C = True
+D = True
+E = True
+F = False
+G = False
+H = False
+I = False
 ############################### Docker Linux Commands ###########################################################
 def removeSubnet(subnetName):
     command = "docker network rm " + subnetName
@@ -61,51 +69,43 @@ def disconnectFromNetwork(subnetName, instanceName):
 ################################# Unit Test Class ############################################################
 
 class TestHW3(unittest.TestCase):
-    A = True
-    B = False
-    C = False
-    D = False
-    E = False
-    F = False
-    G = False
-    H = False
-    I = False
+  
     shardIdList = []
     shardsMemberList = []
     keyCount = 1200
+    if True:
+        ######################## Build docker image and create subnet ################################
+        print("###################### Building Docker Image ######################\n")
+        # build docker image
+        buildDockerImage()
 
-    ######################## Build docker image and create subnet ################################
-    print("###################### Building Docker Image ######################\n")
-    # build docker image
-    buildDockerImage()
-
-    # stop and remove containers from possible previous runs
-    print("\n###################### Stopping and removing containers from previous run ######################\n")
-    stopAndRemoveInstance("node1")
-    stopAndRemoveInstance("node2")
-    stopAndRemoveInstance("node3")
-    stopAndRemoveInstance("node4")
-    stopAndRemoveInstance("node5")
-    stopAndRemoveInstance("node6")
-    stopAndRemoveInstance("node7")
+        # stop and remove containers from possible previous runs
+        print("\n###################### Stopping and removing containers from previous run ######################\n")
+        stopAndRemoveInstance("node1")
+        stopAndRemoveInstance("node2")
+        stopAndRemoveInstance("node3")
+        stopAndRemoveInstance("node4")
+        stopAndRemoveInstance("node5")
+        stopAndRemoveInstance("node6")
+        stopAndRemoveInstance("node7")
 
 
-    print("\n###################### Creating the subnet ######################\n")
-    # remove the subnet possibly created from the previous run
-    removeSubnet(subnetName)
+        print("\n###################### Creating the subnet ######################\n")
+        # remove the subnet possibly created from the previous run
+        removeSubnet(subnetName)
 
-    # create subnet
-    createSubnet(subnetAddress, subnetName)
+        # create subnet
+        createSubnet(subnetAddress, subnetName)
 
-    # run instances
-    print("\n###################### Running Instances ######################\n")
-    runInstance(nodeHostPortList[0], nodeIpList[0], subnetName, "node1")
-    runInstance(nodeHostPortList[1], nodeIpList[1], subnetName, "node2")
-    runInstance(nodeHostPortList[2], nodeIpList[2], subnetName, "node3")
-    runInstance(nodeHostPortList[3], nodeIpList[3], subnetName, "node4")
-    runInstance(nodeHostPortList[4], nodeIpList[4], subnetName, "node5")
-    runInstance(nodeHostPortList[5], nodeIpList[5], subnetName, "node6")
-
+        # run instances
+        print("\n###################### Running Instances ######################\n")
+        runInstance(nodeHostPortList[0], nodeIpList[0], subnetName, "node1")
+        runInstance(nodeHostPortList[1], nodeIpList[1], subnetName, "node2")
+        runInstance(nodeHostPortList[2], nodeIpList[2], subnetName, "node3")
+        runInstance(nodeHostPortList[3], nodeIpList[3], subnetName, "node4")
+        runInstance(nodeHostPortList[4], nodeIpList[4], subnetName, "node5")
+        runInstance(nodeHostPortList[5], nodeIpList[5], subnetName, "node6")
+        
     print("\n###################### Running Tests ######################\n")
 
     ########################## Run tests #######################################################
@@ -179,11 +179,14 @@ class TestHW3(unittest.TestCase):
         response = requests.get( 'http://localhost:8082/key-value-store-shard/node-shard-id')
         responseInJson = response.json()
         self.assertEqual(response.status_code, 200)
-
+        print(responseInJson)
         node1ShardId = responseInJson['shard-id']
-
+        print(node1ShardId)
+        print(self.shardIdList)
         self.assertTrue(node1ShardId in self.shardIdList)
-
+        
+        
+        
         if node1ShardId == shard1:
             self.assertTrue(nodeSocketAddressList[0] in self.shardsMemberList[0].split(","))
         else:
@@ -236,7 +239,9 @@ class TestHW3(unittest.TestCase):
             nextCausalMetadata = responseInJson["causal-metadata"]
 
             keyShardId = responseInJson["shard-id"]
-
+            print(responseInJson)
+            print(keyShardId)
+            print(self.shardIdList)
             self.assertTrue(keyShardId in self.shardIdList)
 
     def test_e_get_key_value_operation(self):

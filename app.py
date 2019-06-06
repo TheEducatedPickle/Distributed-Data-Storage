@@ -26,7 +26,7 @@ versionlist = []
 def getNodeShardId():
     global current_shard
     data={"message":"Shard ID of the node retrieved successfully", 
-        "shard-id":current_shard}
+        "shard-id":str(current_shard)}
     return app.response_class(response=json.dumps(data),status=200,mimetype='application/json')
 
 @app.route('/key-value-store-shard/shard-ids', methods=['GET'])
@@ -401,7 +401,7 @@ def put(key):
             broadcast_request(key, shard_id)
             versionlist.append(1)
             data = {"message": "Added successfully",
-                "version": "1", "causal-metadata": "1", "shard-id": shard_id}
+                "version": "1", "causal-metadata": "1", "shard-id": str(shard_id)}
             response = app.response_class(response=json.dumps(
                 data), status=201, mimetype='application/json')
             return response
@@ -422,7 +422,7 @@ def put(key):
                 broadcast_request(key, shard_id)
 
                 data = {"message": message, "version": str(
-                    versionlist[-1]), "causal-metadata": list_to_string(versionlist), "shard-id": shard_id}
+                    versionlist[-1]), "causal-metadata": list_to_string(versionlist), "shard-id": str(shard_id)}
                 response = app.response_class(response=json.dumps(
                     data), status=status, mimetype='application/json')
                 return response
