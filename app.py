@@ -49,12 +49,17 @@ def keyCount(shardid):
         "shard-id-key-count":len(getNodesInShard(int(shardid)))}
     return app.response_class(response=json.dumps(data), status=200,mimetype='application/json')    
 
-@app.route('/key-value-store-shard/add-member/<socket>', methods = ['PUT'])
-def addNodeToShards(socket):
+@app.route('/key-value-store-shard/add-member/<shard>', methods = ['PUT'])
+def addNodeToShards(shard):
     global SHARDS
-    SHARDS[int(socket)].append(request.get_json()['socket-address'])
+    address = request.get_json()['socket-address']
+    print('----- Adding ',address,'to node',shard,'-----', file=sys.stderr)
+    SHARDS[int(shard)].append(address)
     broadcastShardOverwrite()
-    data = {"assigned-id":socket}
+    data = {"assigned-id":shard}
+    requests.put(url='http://'+address+'/assign-shard/'+shard)
+    print('New Shard View:',SHARDS,file=sys.stderr)
+    print('----- Node added -----',file=sys.stderr)
     return app.response_class(response=json.dumps(data), status=200,mimetype='application/json')    
 
 @app.route('/key-value-store-shard/reshard', methods=['PUT'])
@@ -516,6 +521,8 @@ def broadcastReceivePut(key):
     value = get_value()
     causal_meta = get_causal_meta()
     print('Received PUT request with JSON:',request.get_json(),file=sys.stderr)
+    if not DICTIONARY:
+        DICTIONARY = {}
     if causal_meta == "":
         keyData = [value,1,""]  # individual key
         DICTIONARY[key] = keyData
@@ -584,6 +591,7 @@ def onStart():
     global SOCKET
     global SHARDS
     global DICTIONARY
+    global SHARD_COUNT
     global versionlist
     global current_shard
     if REPLICAS:
@@ -598,11 +606,28 @@ def onStart():
                     request = requests.get(url=URL, timeout=5).json()
                     for shardId, nodes in request['shards'].items():
                         SHARDS[int(shardId)] = nodes
+                    print('Shard view:',SHARDS,'retrieved from',repl,file=sys.stderr)
                     break
                 except requests.exceptions.ConnectionError:
                     print(repl, 'failed to respond to view put request', file=sys.stderr)
-    
-    if not SHARDS and SOCKET:
+    if SHARD_COUNT:
+        completeStartup()
+    else:
+        print("Awaiting shard assignment",file=sys.stderr)
+
+@app.route('/assign-shard/<shardid>',methods=['PUT'])
+def completeStartup(shardid=None):
+    global REPLICAS
+    global SOCKET
+    global SHARDS
+    global DICTIONARY
+    global versionlist
+    global current_shard
+
+    if shardid:
+        current_shard = shardid
+
+    if not SHARDS:
         rIndex = 0
         for i in range(1,SHARD_COUNT+1):
             SHARDS[i] = []
@@ -637,6 +662,8 @@ def onStart():
     print('Shard Mapping:',SHARDS, file=sys.stderr)
     print('Dictionary:', DICTIONARY, file=sys.stderr)
     print('-------------------------------------\n',file=sys.stderr)
+    
+    return Response("{'Live': 'True'}", status=200, mimetype='application/json')
 
 def get_ip(address):
     return address.split(":")[0]

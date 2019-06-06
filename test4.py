@@ -138,6 +138,7 @@ class TestHW3(unittest.TestCase):
         self.assertEqual(shardIdsFromNode6, shardIdsFromNode1)
 
         self.shardIdList += shardIdsFromNode1.split(",")
+        print('ShardID List',self.shardIdList)
 
     def test_b_shard_id_members(self):
         if not B:
@@ -179,7 +180,6 @@ class TestHW3(unittest.TestCase):
         responseInJson = response.json()
         self.assertEqual(response.status_code, 200)
         node1ShardId = responseInJson['shard-id']
-        print(self.shardIdList)
         self.assertTrue(node1ShardId in self.shardIdList)
         
         
@@ -210,7 +210,7 @@ class TestHW3(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
 
         node6ShardId = responseInJson['shard-id']
-
+        print(node6ShardId)
         self.assertTrue(node6ShardId in self.shardIdList)
 
         if node6ShardId == shard1:
