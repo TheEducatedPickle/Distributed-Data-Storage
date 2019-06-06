@@ -410,7 +410,7 @@ def put(key):
         # on any other PUT operation. Therefore, it generates unique version <V1> for the
         # PUT operation, stores the key, value, the version, and corresponding causal metadata
         # (empty in this case)
-        if causal_meta == "": #If you are putting the first message
+        if causal_meta == "" or not versionlist: #If you are putting the first message
             keyData = [value,1,""]  # individual key
             DICTIONARY[key] = keyData
 

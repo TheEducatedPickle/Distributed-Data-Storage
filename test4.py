@@ -17,10 +17,10 @@ for nodeSocketAddress in nodeSocketAddressList:
 view = view[:-1]
 
 shardCount = 2
-A = True
-B = True
-C = True
-D = True
+A = False
+B = False
+C = False
+D = False
 E = True
 F = True
 G = True
@@ -71,7 +71,7 @@ def disconnectFromNetwork(subnetName, instanceName):
 class TestHW3(unittest.TestCase):
     shardIdList = []
     shardsMemberList = []
-    keyCount = 1200
+    keyCount = 10
     if True:
         ######################## Build docker image and create subnet ################################
         print("###################### Building Docker Image ######################\n")
@@ -178,9 +178,7 @@ class TestHW3(unittest.TestCase):
         response = requests.get( 'http://localhost:8082/key-value-store-shard/node-shard-id')
         responseInJson = response.json()
         self.assertEqual(response.status_code, 200)
-        print(responseInJson)
         node1ShardId = responseInJson['shard-id']
-        print(node1ShardId)
         print(self.shardIdList)
         self.assertTrue(node1ShardId in self.shardIdList)
         
@@ -238,9 +236,9 @@ class TestHW3(unittest.TestCase):
             nextCausalMetadata = responseInJson["causal-metadata"]
 
             keyShardId = responseInJson["shard-id"]
-            print(responseInJson)
-            print(keyShardId)
-            print(self.shardIdList)
+            #print(responseInJson)
+            #print(keyShardId)
+            #print(self.shardIdList)
             self.assertTrue(keyShardId in self.shardIdList)
 
     def test_e_get_key_value_operation(self):
@@ -313,6 +311,7 @@ class TestHW3(unittest.TestCase):
         # get the new view from node1
         response = requests.get( 'http://localhost:8082/key-value-store-view')
         responseInJson = response.json()
+        print(responseInJson)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(responseInJson['view'], newView)
 
