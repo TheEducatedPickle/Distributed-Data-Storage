@@ -17,7 +17,15 @@ for nodeSocketAddress in nodeSocketAddressList:
 view = view[:-1]
 
 shardCount = 2
-
+A = True
+B = False
+C = False
+D = False
+E = False
+F = False
+G = False
+H = False
+I = False
 ############################### Docker Linux Commands ###########################################################
 def removeSubnet(subnetName):
     command = "docker network rm " + subnetName
@@ -61,15 +69,6 @@ def disconnectFromNetwork(subnetName, instanceName):
 ################################# Unit Test Class ############################################################
 
 class TestHW3(unittest.TestCase):
-    A = True
-    B = False
-    C = False
-    D = False
-    E = False
-    F = False
-    G = False
-    H = False
-    I = False
     shardIdList = []
     shardsMemberList = []
     keyCount = 1200
