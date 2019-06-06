@@ -17,10 +17,10 @@ for nodeSocketAddress in nodeSocketAddressList:
 view = view[:-1]
 
 shardCount = 2
-A = False
-B = False
-C = False
-D = False
+A = True
+B = True
+C = True
+D = True
 E = True
 F = True
 G = True
