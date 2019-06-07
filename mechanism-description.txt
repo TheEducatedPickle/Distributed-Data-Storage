@@ -11,3 +11,9 @@ Each replica maintains a list of sockets (called REPLICAS) that are currently on
 To ensure that no dead replica is in the REPLICAS list, getView sends a GET request to the /ping/ endpoint of every replica in its list. If a replica fails to respond with a 200 status code within 10 seconds, it is declared dead and removed from the list. The current replica will then broadcast a DELETE request to all other replicas in its list, instructing them to remove the replica. After this operation completes, all remaining replicas in REPLICAS should be live nodes.
 
 If a new replica is added to the system, the replica will run a function called onStart. This function will scan through each replica in its REPLICAS list and attempt to ping each replica. If a replica responds to the ping with 200 status code, the replica ceases the scan and sends a PUT request to the /key-value-store-view/ endpoint on that node. This instructs the receiving node to add the new node to its view and broadcast the addition to all known replicas in the receiving node's list. After this operation terminates, every replica should have added the new node to thier view.
+
+Key-to-shard mapping strategy
+------------------------------
+getShardId function uses md5 hashing, then converts it into hex. To get the range from 1-shard-count, first it takes mod shard-count of that hex and add 1 to it. This method is consistent but not uniform (which is not required for keys). In put, get and delete request,we get the shard-id of the key by passing the key to function getShardId, which returns the shard-id. 
+
+
