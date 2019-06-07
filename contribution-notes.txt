@@ -2,5 +2,5 @@ For this assignment Austin and Priya worked on implementing broadcasting and vie
 
 Emerson Christie (emjchris) - implemented key value operations (get, put, delete) enforced with causal consistency.
 Yousef Dost (ydost) - helped implement causal operations and queueing mechanism
-Austin Yuan (ajyuan) - worked on broadcast methods and view operations
+Austin Yuan (ajyuan) - Implemented resharding system and shard operations
 Priya Rajarathinam (prajarat) - worked on making the dictionary consistent between shards and coding some of the endpoints.
