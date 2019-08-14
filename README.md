@@ -1,4 +1,1 @@
-# CMPS128_Assignment2B (Team Python Oscar)
-## A Simple Python + Flask REST API containerized with Docker
-
-
+# A Distributed Data Storage Solution containerized with Docker

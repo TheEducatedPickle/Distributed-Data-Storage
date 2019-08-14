@@ -1,6 +1,0 @@
-For this assignment Austin and Priya worked on implementing broadcasting and view operations, and Emerson and Yousef worked on ensuring causal consistency
-
-Emerson Christie (emjchris) - helped implement some of the key-value operations and debugging.
-Yousef Dost (ydost) - Implemented the key-value operations with key to shard mapping and causal consistency
-Austin Yuan (ajyuan) - Implemented resharding system and shard operations
-Priya Rajarathinam (prajarat) - worked on making the dictionary consistent between shards and coding some of the endpoints.
